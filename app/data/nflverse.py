@@ -50,13 +50,16 @@ def loaded_seasons(con: duckdb.DuckDBPyConnection, table: str) -> list[int]:
     return [int(r[0]) for r in rows]
 
 
-def _cast_dates(table: str, df: pl.DataFrame) -> pl.DataFrame:
+def _normalize(table: str, df: pl.DataFrame) -> pl.DataFrame:
     cols = [c for c in DATE_COLUMNS.get(table, ()) if c in df.columns]
-    return df.with_columns([pl.col(c).cast(pl.Utf8).str.to_date(strict=False) for c in cols])
+    date_casts = [pl.col(c).cast(pl.Utf8).str.to_date(strict=False) for c in cols]
+    int_cols = [c for c in ["season", "week"] if c in df.columns]
+    int_casts = [pl.col(c).cast(pl.Int64, strict=False) for c in int_cols]
+    return df.with_columns(date_casts + int_casts)
 
 
 def replace_table(con: duckdb.DuckDBPyConnection, table: str, df: pl.DataFrame) -> int:
-    frame = _cast_dates(table, df)
+    frame = _normalize(table, df)
     con.register("incoming", frame)
     con.execute(f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM incoming")
     con.unregister("incoming")
@@ -66,7 +69,7 @@ def replace_table(con: duckdb.DuckDBPyConnection, table: str, df: pl.DataFrame) 
 def replace_season_rows(
     con: duckdb.DuckDBPyConnection, table: str, df: pl.DataFrame, seasons: Iterable[int]
 ) -> int:
-    frame = _cast_dates(table, df)
+    frame = _normalize(table, df)
     if not table_exists(con, table):
         return replace_table(con, table, frame)
     season_list = list(seasons)

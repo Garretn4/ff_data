@@ -3,7 +3,7 @@ from pathlib import Path
 import polars as pl
 
 from app.data.nflverse import (
-    connect, ingest_seasons, ingest_static, loaded_seasons, replace_season_rows, table_exists,
+    connect, ingest_seasons, ingest_static, loaded_seasons, replace_season_rows, replace_table, table_exists,
 )
 
 
@@ -57,3 +57,23 @@ def test_ingest_static_replaces_whole_table(tmp_path: Path) -> None:
     assert con.execute("SELECT typeof(scrape_date) FROM ff_rankings LIMIT 1").fetchone()[0] == "DATE"
     assert table_exists(con, "ff_playerids")
     assert not table_exists(con, "nope")
+
+
+def test_season_and_week_are_normalized_to_int(tmp_path: Path) -> None:
+    con = connect(tmp_path / "s.duckdb")
+    df = pl.DataFrame({
+        "season": ["2024", "2025"],
+        "week": [1.0, 2.0],
+        "other": ["a", "b"],
+    })
+    replace_table(con, "test_table", df)
+    assert con.execute("SELECT typeof(season) FROM test_table LIMIT 1").fetchone()[0] == "BIGINT"
+    assert con.execute("SELECT typeof(week) FROM test_table LIMIT 1").fetchone()[0] == "BIGINT"
+    assert loaded_seasons(con, "test_table") == [2024, 2025]
+    df2 = pl.DataFrame({
+        "season": ["2024"],
+        "week": [3.0],
+        "other": ["c"],
+    })
+    assert replace_season_rows(con, "test_table", df2, ["2024"]) == 1
+    assert con.execute("SELECT count(*) FROM test_table").fetchone()[0] == 2
