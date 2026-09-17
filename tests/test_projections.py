@@ -1,8 +1,8 @@
 import polars as pl
 
 from app.model.projections import (
-    BlendParams, blend, curve_ppg, opponent_factors, positional_ranks, rank_to_ppg_curve,
-    weekly_projection,
+    BlendParams, Inputs, blend, build_features, curve_ppg, opponent_factors, positional_ranks,
+    rank_to_ppg_curve, weekly_projection,
 )
 
 
@@ -57,6 +57,87 @@ def test_opponent_factors_are_shrunk_and_clamped() -> None:
     factors = opponent_factors(pl.DataFrame(rows), through_week=6)
     f = dict(zip(factors["defense"], factors["factor"]))
     assert f["SOFT"] == 1.1 and f["HARD"] == 0.9 and abs(f["AVG"] - 1.0) < 1e-9
+
+
+def test_build_features_universe_and_fallbacks() -> None:
+    hub = pl.DataFrame({
+        "gsis_id": ["00-v", "00-r", "00-f"],
+        "fantasypros_id": ["1", "2", "3"],
+        "position": ["RB", "RB", "WR"],
+    })
+    consensus_preseason = pl.DataFrame({
+        "fantasypros_id": ["1", "2", "3", "4", "5"],
+        "pos": ["RB", "RB", "WR", "WR", "K"],
+        "ecr": [1.0, 2.0, 3.0, 4.0, 5.0],
+    })
+    prev_seasonal = pl.DataFrame({
+        "player_id": ["00-v", "00-f"],
+        "position": ["RB", "WR"],
+        "games": [16, 3],
+        "ppg": [15.0, 30.0],
+    })
+    prev_curve = pl.DataFrame({
+        "position": ["RB", "RB", "WR"],
+        "pos_rank": [1, 2, 1],
+        "ppg": [15.0, 10.0, 12.0],
+    })
+    replacement = {"RB": 6.0, "WR": 5.0}
+    age_curve = pl.DataFrame(
+        schema={"position": pl.Utf8, "age": pl.Int64, "factor": pl.Float64}
+    )
+    ages = pl.DataFrame({"player_id": ["00-v"], "age": [30]})
+    scored = pl.DataFrame({
+        "player_id": ["00-v", "00-v"],
+        "season": [2025, 2025],
+        "week": [1, 2],
+        "position": ["RB", "RB"],
+        "team": ["A", "A"],
+        "opponent_team": ["X", "Y"],
+        "points": [10.0, 20.0],
+    })
+    opportunity = pl.DataFrame({
+        "player_id": ["00-v"], "season": [2025], "week": [1], "exp_points": [12.0],
+    })
+
+    inputs = Inputs(
+        scored=scored,
+        opportunity=opportunity,
+        hub=hub,
+        consensus_preseason=consensus_preseason,
+        prev_curve=prev_curve,
+        prev_seasonal=prev_seasonal,
+        age_curve=age_curve,
+        ages=ages,
+        replacement=replacement,
+    )
+    out = build_features(inputs, 2025, 3)
+
+    assert out.columns == [
+        "player_id", "position", "ecr_ppg", "last_ppg", "age_mult", "usage_ppg", "actual_ppg", "n",
+    ]
+    assert sorted(out["player_id"].to_list()) == ["00-f", "00-r", "00-v"]
+
+    rows = {row["player_id"]: row for row in out.iter_rows(named=True)}
+
+    vet = rows["00-v"]
+    assert vet["ecr_ppg"] == 15.0
+    assert vet["last_ppg"] == 15.0
+    assert vet["age_mult"] == 1.0
+    assert vet["usage_ppg"] == 12.0
+    assert vet["actual_ppg"] == 15.0
+    assert vet["n"] == 2
+
+    rookie = rows["00-r"]
+    assert rookie["ecr_ppg"] == 10.0
+    assert rookie["last_ppg"] == 6.0
+    assert rookie["n"] == 0
+    assert rookie["usage_ppg"] is None
+    assert rookie["actual_ppg"] is None
+
+    few_games = rows["00-f"]
+    assert few_games["ecr_ppg"] == 12.0
+    assert few_games["last_ppg"] == 5.0
+    assert few_games["n"] == 0
 
 
 def test_weekly_projection_handles_bye_injury_and_factor() -> None:
