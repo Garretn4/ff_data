@@ -59,7 +59,11 @@ def remaining_games(schedules: pl.DataFrame, season: int, week_from: int) -> pl.
 
 
 def _games_per_player(teams: pl.DataFrame, per_team: pl.DataFrame) -> pl.DataFrame:
-    return teams.join(per_team, on="team", how="left").with_columns(pl.col("games").fill_null(0)).select("player_id", "games")
+    median = per_team["games"].median() if per_team.height else None
+    fallback = int(round(median)) if median is not None else 0
+    return teams.join(per_team, on="team", how="left").with_columns(
+        pl.col("games").fill_null(fallback)
+    ).select("player_id", "games")
 
 
 def market_prediction(
@@ -116,7 +120,7 @@ class SeasonContext:
     age_curve: pl.DataFrame
     ages: pl.DataFrame
     schedules: pl.DataFrame
-    teams_by_week: pl.DataFrame
+    prev_teams: pl.DataFrame
 
 
 def _scored_weeks(con: duckdb.DuckDBPyConnection, seasons: list[int], scoring: dict[str, float]) -> pl.DataFrame:
@@ -128,11 +132,11 @@ def _scored_weeks(con: duckdb.DuckDBPyConnection, seasons: list[int], scoring: d
     )
 
 
-def _team_schedule(schedules: pl.DataFrame, season: int) -> pl.DataFrame:
-    reg = schedules.filter((pl.col("season") == season) & (pl.col("game_type") == "REG"))
-    home = reg.select("week", pl.col("home_team").alias("team"), pl.col("away_team").alias("opponent"))
-    away = reg.select("week", pl.col("away_team").alias("team"), pl.col("home_team").alias("opponent"))
-    return pl.concat([home, away])
+def _prev_season_teams(history: pl.DataFrame, season: int) -> pl.DataFrame:
+    return (
+        history.filter(pl.col("season") == season - 1)
+        .sort("week").group_by("player_id").agg(pl.col("team").last())
+    )
 
 
 def load_season_context(con: duckdb.DuckDBPyConnection, season: int, scoring: dict[str, float]) -> SeasonContext:
@@ -156,7 +160,7 @@ def load_season_context(con: duckdb.DuckDBPyConnection, season: int, scoring: di
         age_curve=fit_age_curve(seasonal, ages_all),
         ages=ages_all.filter(pl.col("season") == season).select("player_id", "age"),
         schedules=schedules,
-        teams_by_week=_team_schedule(schedules, season),
+        prev_teams=_prev_season_teams(history, season),
     )
 
 
@@ -164,9 +168,10 @@ def _player_teams(ctx: SeasonContext, week: int) -> pl.DataFrame:
     latest = (
         ctx.scored.filter(pl.col("week") < week).sort("week").group_by("player_id").agg(pl.col("team").last())
     )
-    fallback = ctx.hub.select(pl.col("gsis_id").alias("player_id"), pl.col("team").alias("hub_team"))
-    return fallback.join(latest, on="player_id", how="left").select(
-        "player_id", pl.coalesce(pl.col("team"), pl.col("hub_team")).alias("team")
+    universe = ctx.hub.select(pl.col("gsis_id").alias("player_id"))
+    with_prev = universe.join(ctx.prev_teams, on="player_id", how="left").rename({"team": "prev_team"})
+    return with_prev.join(latest, on="player_id", how="left").select(
+        "player_id", pl.coalesce(pl.col("team"), pl.col("prev_team")).alias("team")
     )
 
 
@@ -181,45 +186,59 @@ def week_features(ctx: SeasonContext, week: int, roster_positions: list[str], n_
     return build_features(inputs, ctx.season, week)
 
 
-def _week_eval(
-    con: duckdb.DuckDBPyConnection, ctx: SeasonContext, week: int, roster_positions: list[str], n_teams: int,
-    params: BlendParams, features: pl.DataFrame,
-) -> pl.DataFrame:
-    games = _games_per_player(_player_teams(ctx, week), remaining_games(ctx.schedules, ctx.season, week))
-    actual = actual_ros(ctx.scored, ctx.season, week)
-    starters = starters_per_position(roster_positions, n_teams, ctx.prev_seasonal.select("player_id", "position", "ppg"))
-    model = model_prediction(blend(features, params), games)
-    market = market_prediction(consensus_snapshot(con, ctx.season, week), ctx.hub, ctx.prev_curve, games)
-    universe = market.select("player_id")
-    model_eval = evaluate(model.join(universe, on="player_id", how="inner"), actual, starters)
-    market_eval = evaluate(market, actual, starters)
-    return pl.concat([
-        model_eval.with_columns(pl.lit("model").alias("source")),
-        market_eval.with_columns(pl.lit("consensus").alias("source")),
-    ]).with_columns(pl.lit(ctx.season).alias("season"), pl.lit(week).alias("week"))
+@dataclass(frozen=True)
+class WeekContext:
+    ctx: SeasonContext
+    week: int
+    features: pl.DataFrame
+    games: pl.DataFrame
+    actual: pl.DataFrame
+    starters: dict[str, int]
+    universe: pl.DataFrame
+    market_eval: pl.DataFrame
 
 
-def _features_by_week(
+def _prepare_weeks(
     con: duckdb.DuckDBPyConnection, scoring: dict[str, float], roster_positions: list[str], n_teams: int,
     seasons: list[int], weeks: list[int],
-) -> dict[tuple[int, int], tuple[SeasonContext, pl.DataFrame]]:
-    out: dict[tuple[int, int], tuple[SeasonContext, pl.DataFrame]] = {}
+) -> list[WeekContext]:
+    prepared: list[WeekContext] = []
     for season in seasons:
         ctx = load_season_context(con, season, scoring)
         for week in weeks:
-            out[(season, week)] = (ctx, week_features(ctx, week, roster_positions, n_teams))
-    return out
+            features = week_features(ctx, week, roster_positions, n_teams)
+            games = _games_per_player(_player_teams(ctx, week), remaining_games(ctx.schedules, ctx.season, week))
+            actual = actual_ros(ctx.scored, ctx.season, week)
+            starters = starters_per_position(
+                roster_positions, n_teams, ctx.prev_seasonal.select("player_id", "position", "ppg")
+            )
+            market = market_prediction(consensus_snapshot(con, ctx.season, week), ctx.hub, ctx.prev_curve, games)
+            market_eval = evaluate(market, actual, starters).with_columns(pl.lit("consensus").alias("source"))
+            prepared.append(
+                WeekContext(
+                    ctx=ctx, week=week, features=features, games=games, actual=actual, starters=starters,
+                    universe=market.select("player_id"), market_eval=market_eval,
+                )
+            )
+    return prepared
+
+
+def _eval_params(wc: WeekContext, params: BlendParams) -> pl.DataFrame:
+    model = model_prediction(blend(wc.features, params), wc.games)
+    model_eval = evaluate(
+        model.join(wc.universe, on="player_id", how="inner"), wc.actual, wc.starters
+    ).with_columns(pl.lit("model").alias("source"))
+    return pl.concat([model_eval, wc.market_eval]).with_columns(
+        pl.lit(wc.ctx.season).alias("season"), pl.lit(wc.week).alias("week")
+    )
 
 
 def run_backtest(
     con: duckdb.DuckDBPyConnection, scoring: dict[str, float], roster_positions: list[str], n_teams: int,
     seasons: list[int], weeks: list[int], params: BlendParams,
 ) -> pl.DataFrame:
-    prepared = _features_by_week(con, scoring, roster_positions, n_teams, seasons, weeks)
-    frames = [
-        _week_eval(con, ctx, week, roster_positions, n_teams, params, feats)
-        for (_, week), (ctx, feats) in prepared.items()
-    ]
+    prepared = _prepare_weeks(con, scoring, roster_positions, n_teams, seasons, weeks)
+    frames = [_eval_params(wc, params) for wc in prepared]
     return pl.concat(frames).select("season", "week", "source", "position", "spearman", "mae", "precision", "n")
 
 
@@ -232,13 +251,10 @@ def tune(
     con: duckdb.DuckDBPyConnection, scoring: dict[str, float], roster_positions: list[str], n_teams: int,
     seasons: list[int], weeks: list[int], grid: list[BlendParams] = DEFAULT_GRID,
 ) -> BlendParams:
-    prepared = _features_by_week(con, scoring, roster_positions, n_teams, seasons, weeks)
+    prepared = _prepare_weeks(con, scoring, roster_positions, n_teams, seasons, weeks)
     best: tuple[float, BlendParams] | None = None
     for params in grid:
-        frames = [
-            _week_eval(con, ctx, week, roster_positions, n_teams, params, feats)
-            for (_, week), (ctx, feats) in prepared.items()
-        ]
+        frames = [_eval_params(wc, params) for wc in prepared]
         score = _score(pl.concat(frames))
         if best is None or score < best[0]:
             best = (score, params)

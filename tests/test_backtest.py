@@ -3,6 +3,7 @@ from pathlib import Path
 import polars as pl
 
 from app.model.backtest import (
+    SeasonContext, _games_per_player, _player_teams,
     actual_ros, evaluate, gate_passes, mae, precision_at, remaining_games, spearman, write_report,
 )
 from app.model.projections import BlendParams
@@ -74,3 +75,36 @@ def test_write_report_renders_tables(tmp_path: Path) -> None:
     assert "## Pooled by season" in text
     assert "## By position" in text
     assert "## By week bucket" in text
+
+
+def test_games_per_player_uses_median_for_unknown_team() -> None:
+    teams = pl.DataFrame(
+        {"player_id": ["p1", "p2"], "team": ["A", None]}, schema={"player_id": pl.Utf8, "team": pl.Utf8}
+    )
+    per_team = pl.DataFrame({"team": ["A", "B", "C"], "games": [3, 5, 7]})
+    out = _games_per_player(teams, per_team)
+    result = dict(zip(out["player_id"], out["games"]))
+    assert result["p1"] == 3
+    assert result["p2"] == 5
+
+
+def test_player_teams_prefers_current_then_previous_season() -> None:
+    empty = pl.DataFrame()
+    ctx = SeasonContext(
+        season=2024,
+        scored=pl.DataFrame({"player_id": ["p1", "p1"], "week": [1, 2], "team": ["X", "Y"]}),
+        prev_seasonal=empty,
+        prev_curve=empty,
+        opportunity=empty,
+        hub=pl.DataFrame({"gsis_id": ["p1", "p2", "p3"]}),
+        consensus_preseason=empty,
+        age_curve=empty,
+        ages=empty,
+        schedules=empty,
+        prev_teams=pl.DataFrame({"player_id": ["p2"], "team": ["Z"]}),
+    )
+    out = _player_teams(ctx, 3)
+    result = dict(zip(out["player_id"], out["team"]))
+    assert result["p1"] == "Y"
+    assert result["p2"] == "Z"
+    assert result["p3"] is None
