@@ -3,6 +3,7 @@ from pathlib import Path
 
 import httpx
 import polars as pl
+import pytest
 
 from app.data.nflverse import connect, replace_table
 from app.data.store import Store
@@ -77,3 +78,15 @@ def test_snapshot_fantasycalc_writes_store(tmp_path: Path) -> None:
     store = Store(tmp_path / "app.sqlite")
     assert snapshot_fantasycalc(store, http, LEAGUE, "2026-09-16T00:00:00") == 2
     assert store.latest_snapshot("fantasycalc").height == 2
+
+
+def test_first_gameday_raises_without_schedule_rows(tmp_path: Path) -> None:
+    con = connect(tmp_path / "s.duckdb")
+    replace_table(con, "schedules", pl.DataFrame({
+        "season": [2024], "week": [1], "game_type": ["REG"],
+        "gameday": ["2024-09-05"],
+    }))
+    with pytest.raises(ValueError):
+        first_gameday(con, 2024, 9)
+    with pytest.raises(ValueError):
+        consensus_snapshot(con, 2023, 1)
