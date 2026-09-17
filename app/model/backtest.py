@@ -8,6 +8,7 @@ from pathlib import Path
 import duckdb
 import polars as pl
 
+from app.config import STATS_FROM
 from app.data.identity import id_hub
 from app.data.scoring import SKILL_POSITIONS, expected_points, score_weeks
 from app.market import consensus_snapshot
@@ -21,7 +22,6 @@ DEFAULT_GRID: list[BlendParams] = [
     BlendParams(k=k, a=a, b=b)
     for k, a, b in product((2.0, 4.0, 6.0, 8.0, 12.0), (0.3, 0.5, 0.7, 0.9), (0.3, 0.5, 0.7))
 ]
-AGE_CURVE_FROM = 2012
 
 
 def spearman(pred: pl.Series, actual: pl.Series) -> float:
@@ -141,9 +141,9 @@ def _prev_season_teams(history: pl.DataFrame, season: int) -> pl.DataFrame:
 
 def load_season_context(con: duckdb.DuckDBPyConnection, season: int, scoring: dict[str, float]) -> SeasonContext:
     hub = id_hub(con.execute("SELECT * FROM ff_playerids").pl())
-    history = _scored_weeks(con, list(range(AGE_CURVE_FROM, season)), scoring)
+    history = _scored_weeks(con, list(range(STATS_FROM, season)), scoring)
     seasonal = season_ppg(history)
-    ages_all = player_ages(hub, list(range(AGE_CURVE_FROM, season + 1)))
+    ages_all = player_ages(hub, list(range(STATS_FROM, season + 1)))
     scored = _scored_weeks(con, [season], scoring)
     opportunity = expected_points(
         con.execute("SELECT * FROM ff_opportunity WHERE season = ?", [season]).pl(), scoring
@@ -233,10 +233,37 @@ def _eval_params(wc: WeekContext, params: BlendParams) -> pl.DataFrame:
     )
 
 
+def _count(con: duckdb.DuckDBPyConnection, sql: str, params: list[object]) -> int:
+    row = con.execute(sql, params).fetchone()
+    return int(row[0]) if row is not None else 0
+
+
+def check_coverage(con: duckdb.DuckDBPyConnection, seasons: list[int], weeks: list[int]) -> None:
+    """Refuse to run if any season in range is missing stats or consensus snapshots."""
+    for season in seasons:
+        prior = season - 1
+        if _count(con, "SELECT count(*) FROM player_stats WHERE season = ? AND season_type = 'REG'", [prior]) == 0:
+            raise ValueError(f"season {prior}: missing player_stats")
+        if _count(con, "SELECT count(*) FROM player_stats WHERE season = ? AND season_type = 'REG'", [season]) == 0:
+            raise ValueError(f"season {season}: missing player_stats")
+        if _count(con, "SELECT count(*) FROM ff_opportunity WHERE season = ?", [season]) == 0:
+            raise ValueError(f"season {season}: missing ff_opportunity")
+        if _count(con, "SELECT count(*) FROM schedules WHERE season = ? AND game_type = 'REG'", [season]) == 0:
+            raise ValueError(f"season {season}: missing schedules")
+        for week in weeks:
+            try:
+                snapshot = consensus_snapshot(con, season, week)
+            except ValueError as exc:
+                raise ValueError(f"season {season}: missing consensus snapshot for week {week}") from exc
+            if snapshot.height == 0:
+                raise ValueError(f"season {season}: missing consensus snapshot for week {week}")
+
+
 def run_backtest(
     con: duckdb.DuckDBPyConnection, scoring: dict[str, float], roster_positions: list[str], n_teams: int,
     seasons: list[int], weeks: list[int], params: BlendParams,
 ) -> pl.DataFrame:
+    check_coverage(con, seasons, weeks)
     prepared = _prepare_weeks(con, scoring, roster_positions, n_teams, seasons, weeks)
     frames = [_eval_params(wc, params) for wc in prepared]
     return pl.concat(frames).select("season", "week", "source", "position", "spearman", "mae", "precision", "n")
@@ -251,6 +278,7 @@ def tune(
     con: duckdb.DuckDBPyConnection, scoring: dict[str, float], roster_positions: list[str], n_teams: int,
     seasons: list[int], weeks: list[int], grid: list[BlendParams] = DEFAULT_GRID,
 ) -> BlendParams:
+    check_coverage(con, seasons, weeks)
     prepared = _prepare_weeks(con, scoring, roster_positions, n_teams, seasons, weeks)
     best: tuple[float, BlendParams] | None = None
     for params in grid:
@@ -284,12 +312,14 @@ def write_report(metrics: pl.DataFrame, params: BlendParams, path: Path, passed:
     eval_seasons = sorted(metrics["season"].unique().to_list())
     pooled = (
         metrics.filter(pl.col("position") == "ALL")
-        .group_by("season", "source").agg(pl.col("spearman").mean(), pl.col("mae").mean(), pl.col("precision").mean())
+        .group_by("season", "source")
+        .agg(pl.col("spearman").mean(), pl.col("mae").mean(), pl.col("precision").mean(), pl.col("n").sum())
         .sort("season", "source")
     )
     by_pos = (
         metrics.filter(pl.col("position") != "ALL")
-        .group_by("position", "source").agg(pl.col("spearman").mean(), pl.col("mae").mean(), pl.col("precision").mean())
+        .group_by("position", "source")
+        .agg(pl.col("spearman").mean(), pl.col("mae").mean(), pl.col("precision").mean(), pl.col("n").sum())
         .sort("position", "source")
     )
     bucket = pl.when(pl.col("week") <= 5).then(pl.lit("w2-5")).when(pl.col("week") <= 9).then(pl.lit("w6-9")).otherwise(pl.lit("w10-14"))

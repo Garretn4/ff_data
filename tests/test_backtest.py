@@ -1,10 +1,12 @@
 from pathlib import Path
 
+import duckdb
 import polars as pl
+import pytest
 
 from app.model.backtest import (
     SeasonContext, _games_per_player, _player_teams,
-    actual_ros, evaluate, gate_passes, mae, precision_at, remaining_games, spearman, write_report,
+    actual_ros, check_coverage, evaluate, gate_passes, mae, precision_at, remaining_games, spearman, write_report,
 )
 from app.model.projections import BlendParams
 
@@ -75,6 +77,7 @@ def test_write_report_renders_tables(tmp_path: Path) -> None:
     assert "## Pooled by season" in text
     assert "## By position" in text
     assert "## By week bucket" in text
+    assert "| n |" in text
 
 
 def test_games_per_player_uses_median_for_unknown_team() -> None:
@@ -108,3 +111,12 @@ def test_player_teams_prefers_current_then_previous_season() -> None:
     assert result["p1"] == "Y"
     assert result["p2"] == "Z"
     assert result["p3"] is None
+
+
+def test_check_coverage_names_missing_season() -> None:
+    con = duckdb.connect(":memory:")
+    con.execute("CREATE TABLE player_stats (player_id VARCHAR, season INTEGER, week INTEGER, season_type VARCHAR)")
+    con.execute("INSERT INTO player_stats VALUES ('p1', 2024, 1, 'REG'), ('p2', 2024, 2, 'REG')")
+    with pytest.raises(ValueError, match="2023") as exc_info:
+        check_coverage(con, [2024], [3])
+    assert "missing" in str(exc_info.value)
