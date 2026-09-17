@@ -10,7 +10,7 @@ import httpx
 import polars as pl
 
 from app.config import Config
-from app.data.identity import id_hub
+from app.data.identity import id_hub, write_diagnostics
 from app.data.nflverse import (
     SEASON_LOADERS, STATIC_LOADERS, SeasonLoader, StaticLoader, ingest_seasons, ingest_static,
     loaded_seasons, replace_table,
@@ -29,6 +29,7 @@ class RefreshSummary:
     snapshot_rows: int = 0
     errors: list[str] = field(default_factory=list)
     unmapped_scoring: list[str] = field(default_factory=list)
+    unmatched_players: int = 0
 
 
 def _pull_league(client: SleeperClient, league_id: str, week: int) -> dict[str, Any]:
@@ -60,7 +61,7 @@ def _ingest(
     return counts
 
 
-def _write_players(con: duckdb.DuckDBPyConnection, players: Mapping[str, Mapping[str, Any]]) -> int:
+def _write_players(con: duckdb.DuckDBPyConnection, players: Mapping[str, Mapping[str, Any]]) -> tuple[int, int]:
     rows = [
         {"sleeper_id": pid, "full_name": p.get("full_name"), "position": p.get("position"),
          "team": p.get("team"), "age": float(p["age"]) if p.get("age") is not None else None,
@@ -72,7 +73,11 @@ def _write_players(con: duckdb.DuckDBPyConnection, players: Mapping[str, Mapping
     frame = pl.DataFrame(rows, schema=schema)
     hub = id_hub(con.execute("SELECT * FROM ff_playerids").pl()).select("sleeper_id", "gsis_id").drop_nulls()
     joined = frame.join(hub.unique(subset=["sleeper_id"], keep="first"), on="sleeper_id", how="left")
-    return replace_table(con, "sleeper_players", joined)
+    unmatched = joined.filter(pl.col("gsis_id").is_null())
+    unmatched_count = write_diagnostics(
+        con, "sleeper_players", unmatched, "full_name", "position", "no sleeper_id in ff_playerids"
+    )
+    return replace_table(con, "sleeper_players", joined), unmatched_count
 
 
 def _write_meta(con: duckdb.DuckDBPyConnection, league: Mapping[str, Any], week: int, now: datetime) -> None:
@@ -98,7 +103,7 @@ def refresh(
     league = _pull_league(client, cfg.league_id, week)
     summary = RefreshSummary(league_name=str(league["name"]), week=week)
     summary.tables = _ingest(cfg, con, season_loaders, static_loaders)
-    summary.tables["sleeper_players"] = _write_players(con, client.players())
+    summary.tables["sleeper_players"], summary.unmatched_players = _write_players(con, client.players())
     _write_meta(con, league, week, stamp)
     try:
         summary.snapshot_rows = snapshot_fantasycalc(store, market_http, league, stamp.isoformat())

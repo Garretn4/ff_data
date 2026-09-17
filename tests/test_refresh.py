@@ -57,3 +57,8 @@ def test_refresh_populates_tables_and_summary(tmp_path: Path) -> None:
     assert meta == ("1", "Test League", 2)
     players = con.execute("SELECT sleeper_id, gsis_id FROM sleeper_players ORDER BY sleeper_id").fetchall()
     assert players == [("4046", "00-1"), ("DET", None)]
+    assert summary.unmatched_players == 1
+    diagnostics_count = con.execute(
+        "SELECT count(*) FROM identity_diagnostics WHERE source = 'sleeper_players'"
+    ).fetchone()[0]
+    assert diagnostics_count == 1

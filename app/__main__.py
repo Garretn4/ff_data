@@ -41,6 +41,7 @@ def cmd_refresh(cfg: Config) -> int:
     for table, rows in sorted(summary.tables.items()):
         print(f"  {table:<20} {rows:>8} rows")
     print(f"  market snapshot      {summary.snapshot_rows:>8} rows")
+    print(f"  unmatched players   {summary.unmatched_players:>8}")
     if summary.unmapped_scoring:
         print(f"  unmapped scoring keys: {', '.join(summary.unmapped_scoring)}")
     for err in summary.errors:
