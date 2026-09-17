@@ -93,10 +93,12 @@ def _with_missing_as_zero(frame: pl.DataFrame, exprs: list[pl.Expr]) -> pl.DataF
 def _weighted_sum(
     frame: pl.DataFrame, scoring: Mapping[str, float], table: Mapping[str, pl.Expr], out: str
 ) -> pl.DataFrame:
+    used = [table[k] for k in scoring if k in table]
     exprs = [table[k] * float(w) for k, w in scoring.items() if k in table]
-    frame = _with_missing_as_zero(frame, list(table.values()))
+    filled = _with_missing_as_zero(frame, used)
     total = pl.sum_horizontal(exprs) if exprs else pl.lit(0.0)
-    return frame.with_columns(total.cast(pl.Float64).alias(out))
+    points = filled.select(total.cast(pl.Float64).alias(out)).to_series()
+    return frame.with_columns(points)
 
 
 def score_weeks(stats: pl.DataFrame, scoring: Mapping[str, float]) -> pl.DataFrame:

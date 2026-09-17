@@ -58,3 +58,20 @@ def test_expected_points_uses_expected_columns() -> None:
     })
     out = expected_points(fo, PPR)
     assert round(out["exp_points"][0], 4) == round(5.0 + 3.0 + 3.0 + 2.0 + 0.6, 4)
+
+
+def test_score_weeks_output_schema() -> None:
+    frame = week_frame()
+    out = score_weeks(frame, PPR)
+    assert out.columns == frame.columns + ["points"]
+
+
+def test_expected_points_output_schema() -> None:
+    fo = pl.DataFrame({
+        "player_id": ["rb"], "position": ["RB"],
+        "rush_yards_gained_exp": [50.0], "rush_touchdown_exp": [0.5],
+        "receptions_exp": [3.0], "rec_yards_gained_exp": [20.0], "rec_touchdown_exp": [0.1],
+        "pass_yards_gained_exp": [0.0], "pass_touchdown_exp": [0.0], "pass_interception_exp": [0.0],
+    })
+    out = expected_points(fo, PPR)
+    assert out.columns == fo.columns + ["exp_points"]
