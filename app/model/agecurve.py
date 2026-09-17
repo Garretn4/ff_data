@@ -32,10 +32,10 @@ def fit_age_curve(seasonal: pl.DataFrame, ages: pl.DataFrame, min_pairs: int = 1
     """Median year-over-year PPG ratio by position and age, clamped to a sane band."""
     eligible = seasonal.filter(pl.col("games") >= MIN_GAMES_FOR_PAIR)
     nxt = eligible.select(
-        "player_id", (pl.col("season") - 1).alias("season"), pl.col("ppg").alias("next_ppg")
+        "player_id", "position", (pl.col("season") - 1).alias("season"), pl.col("ppg").alias("next_ppg")
     )
     pairs = (
-        eligible.join(nxt, on=["player_id", "season"], how="inner")
+        eligible.join(nxt, on=["player_id", "season", "position"], how="inner")
         .with_columns((pl.col("season") + 1).alias("next_season"))
         .join(ages, left_on=["player_id", "next_season"], right_on=["player_id", "season"], how="inner")
         .filter(pl.col("ppg") > 0)
