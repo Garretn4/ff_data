@@ -33,14 +33,24 @@ def test_flex_goes_to_best_remaining_eligible_player() -> None:
 
 def test_flex_types_fill_most_restrictive_first() -> None:
     frame = pl.DataFrame({
-        "player_id": ["q1", "q2", "r1", "w1"],
-        "position": ["QB", "QB", "RB", "WR"],
-        "ppg": [25.0, 24.0, 15.0, 14.0],
+        "player_id": ["r1", "q1"],
+        "position": ["RB", "QB"],
+        "ppg": [30.0, 20.0],
     })
-    starters = starters_per_position(["QB", "SUPER_FLEX", "FLEX", "BN"], 1, frame)
-    assert starters == {"QB": 2, "RB": 1}
-    starters_alt = starters_per_position(["QB", "FLEX", "SUPER_FLEX", "BN"], 1, frame)
-    assert starters_alt == {"QB": 2, "RB": 1}
+    starters = starters_per_position(["SUPER_FLEX", "FLEX", "BN"], 1, frame)
+    assert starters == {"RB": 1, "QB": 1}
+    starters_alt = starters_per_position(["FLEX", "SUPER_FLEX", "BN"], 1, frame)
+    assert starters_alt == {"RB": 1, "QB": 1}
+
+
+def test_replacement_ranks_splits_remainder_by_largest_fraction() -> None:
+    frame = pl.DataFrame({
+        "player_id": ["q1", "q2", "q3", "r1", "r2", "r3", "w1", "w2", "w3", "t1", "t2", "t3"],
+        "position": ["QB", "QB", "QB", "RB", "RB", "RB", "WR", "WR", "WR", "TE", "TE", "TE"],
+        "ppg": [20.0, 19.0, 18.0, 20.0, 19.0, 18.0, 20.0, 19.0, 18.0, 20.0, 19.0, 18.0],
+    })
+    ranks = replacement_ranks(["QB", "RB", "WR", "TE", "BN", "BN", "BN", "BN", "BN", "BN", "BN"], 3, frame)
+    assert ranks == {"QB": 10, "RB": 9, "WR": 9, "TE": 9}
 
 
 def test_replacement_ranks_add_bench_share_to_skill_positions_only() -> None:
