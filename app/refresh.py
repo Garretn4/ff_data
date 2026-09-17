@@ -71,7 +71,7 @@ def _write_players(con: duckdb.DuckDBPyConnection, players: Mapping[str, Mapping
               "age": pl.Float64, "injury_status": pl.Utf8}
     frame = pl.DataFrame(rows, schema=schema)
     hub = id_hub(con.execute("SELECT * FROM ff_playerids").pl()).select("sleeper_id", "gsis_id").drop_nulls()
-    joined = frame.join(hub.unique(subset=["sleeper_id"]), on="sleeper_id", how="left")
+    joined = frame.join(hub.unique(subset=["sleeper_id"], keep="first"), on="sleeper_id", how="left")
     return replace_table(con, "sleeper_players", joined)
 
 

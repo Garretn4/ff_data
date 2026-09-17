@@ -32,7 +32,11 @@ def cmd_refresh(cfg: Config) -> int:
     store = Store(cfg.sqlite_path)
     con = connect(cfg.duckdb_path)
     client = SleeperClient(store, refresh=True)
-    summary = refresh(cfg, client, con, store, httpx.Client(timeout=30.0))
+    try:
+        summary = refresh(cfg, client, con, store, httpx.Client(timeout=30.0))
+    except httpx.HTTPError as exc:
+        print(f"refresh failed: {exc}")
+        return 1
     print(f"{summary.league_name}: week {summary.week}")
     for table, rows in sorted(summary.tables.items()):
         print(f"  {table:<20} {rows:>8} rows")
