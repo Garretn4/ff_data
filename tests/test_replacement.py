@@ -21,11 +21,26 @@ def test_starter_slots_and_dedicated_counts() -> None:
     assert dedicated_counts(SLOTS) == {"QB": 1, "RB": 2, "WR": 2, "TE": 1, "K": 1, "DEF": 1}
 
 
-def test_flex_goes_to_best_remaining_eligible_players() -> None:
-    starters = starters_per_position(SLOTS, 10, pool())
-    assert starters["QB"] == 10 and starters["K"] == 10 and starters["DEF"] == 10
-    assert starters["RB"] + starters["WR"] + starters["TE"] == 60
-    assert starters["RB"] >= 20 and starters["WR"] >= 20 and starters["TE"] >= 10
+def test_flex_goes_to_best_remaining_eligible_player() -> None:
+    frame = pl.DataFrame({
+        "player_id": ["a", "b", "c", "d", "e", "f"],
+        "position": ["RB", "RB", "RB", "WR", "WR", "WR"],
+        "ppg": [10.0, 9.0, 8.0, 7.0, 6.0, 5.0],
+    })
+    starters = starters_per_position(["RB", "WR", "FLEX", "BN"], 1, frame)
+    assert starters == {"RB": 2, "WR": 1}
+
+
+def test_flex_types_fill_most_restrictive_first() -> None:
+    frame = pl.DataFrame({
+        "player_id": ["q1", "q2", "r1", "w1"],
+        "position": ["QB", "QB", "RB", "WR"],
+        "ppg": [25.0, 24.0, 15.0, 14.0],
+    })
+    starters = starters_per_position(["QB", "SUPER_FLEX", "FLEX", "BN"], 1, frame)
+    assert starters == {"QB": 2, "RB": 1}
+    starters_alt = starters_per_position(["QB", "FLEX", "SUPER_FLEX", "BN"], 1, frame)
+    assert starters_alt == {"QB": 2, "RB": 1}
 
 
 def test_replacement_ranks_add_bench_share_to_skill_positions_only() -> None:

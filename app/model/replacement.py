@@ -26,7 +26,8 @@ def dedicated_counts(roster_positions: Sequence[str]) -> dict[str, int]:
 
 
 def _flex_slots(roster_positions: Sequence[str]) -> list[str]:
-    return [slot for slot in starter_slots(roster_positions) if slot in FLEX_ELIGIBILITY]
+    slots = [slot for slot in starter_slots(roster_positions) if slot in FLEX_ELIGIBILITY]
+    return sorted(slots, key=lambda slot: len(FLEX_ELIGIBILITY[slot]))
 
 
 def starters_per_position(roster_positions: Sequence[str], n_teams: int, ppg: pl.DataFrame) -> dict[str, int]:
@@ -45,20 +46,26 @@ def starters_per_position(roster_positions: Sequence[str], n_teams: int, ppg: pl
     return starters
 
 
+def _bench_shares(starters: dict[str, int], bench_total: int) -> dict[str, int]:
+    """Allocate bench slots to skill positions using largest-remainder method."""
+    skill = {p: c for p, c in starters.items() if p in SKILL_POSITIONS}
+    total = sum(skill.values())
+    if not total:
+        return {p: 0 for p in starters}
+    exact = {p: bench_total * c / total for p, c in skill.items()}
+    shares = {p: int(v) for p, v in exact.items()}
+    leftover = bench_total - sum(shares.values())
+    for p, _ in sorted(exact.items(), key=lambda kv: (-(kv[1] - int(kv[1])), kv[0]))[:leftover]:
+        shares[p] += 1
+    return {p: shares.get(p, 0) for p in starters}
+
+
 def replacement_ranks(roster_positions: Sequence[str], n_teams: int, ppg: pl.DataFrame) -> dict[str, int]:
     """Rank of the first replacement-level player: starters plus a bench share, then one more."""
     starters = starters_per_position(roster_positions, n_teams, ppg)
     bench_total = sum(1 for slot in roster_positions if slot == "BN") * n_teams
-    skill_starters = sum(starters.get(p, 0) for p in SKILL_POSITIONS)
-    ranks: dict[str, int] = {}
-    allocated = 0
-    for pos, count in starters.items():
-        share = round(bench_total * count / skill_starters) if pos in SKILL_POSITIONS and skill_starters else 0
-        allocated += share
-        ranks[pos] = count + share + 1
-    if skill_starters:
-        ranks["RB"] = ranks.get("RB", 1) + (bench_total - allocated)
-    return ranks
+    shares = _bench_shares(starters, bench_total)
+    return {pos: count + shares[pos] + 1 for pos, count in starters.items()}
 
 
 def replacement_ppg(ppg: pl.DataFrame, ranks: dict[str, int]) -> dict[str, float]:
