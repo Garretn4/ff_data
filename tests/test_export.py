@@ -20,3 +20,21 @@ def test_export_writes_duckdb_parquet_csv_and_readme(tmp_path: Path) -> None:
     assert practice.execute("SELECT sum(points) FROM player_stats").fetchone()[0] == 4.0
     readme = (out / "README.md").read_text()
     assert "duckdb.connect" in readme and "dbConnect" in readme
+
+
+def test_export_reruns_after_failure_and_when_file_exists(tmp_path: Path) -> None:
+    con = connect(tmp_path / "s.duckdb")
+    replace_table(con, "player_stats", pl.DataFrame({"season": [2024], "week": [1], "points": [1.5]}))
+    out = tmp_path / "practice"
+    counts = export_practice(con, out)
+    assert counts == {"player_stats": 1}
+    (out / "csv" / "player_stats.csv").unlink()
+    (out / "csv" / "player_stats.csv").mkdir()
+    try:
+        export_practice(con, out)
+        assert False, "Expected duckdb.Error"
+    except duckdb.Error:
+        pass
+    (out / "csv" / "player_stats.csv").rmdir()
+    counts_rerun = export_practice(con, out)
+    assert counts_rerun == {"player_stats": 1}

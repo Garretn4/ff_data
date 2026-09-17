@@ -50,6 +50,16 @@ def _sql_path(path: Path) -> str:
     return str(path).replace("'", "''")
 
 
+def _copy_tables(con: duckdb.DuckDBPyConnection, out_dir: Path) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for table in _tables(con):
+        con.execute(f"CREATE TABLE practice.{table} AS SELECT * FROM main.{table}")
+        con.execute(f"COPY main.{table} TO '{_sql_path(out_dir / 'parquet' / f'{table}.parquet')}' (FORMAT PARQUET)")
+        con.execute(f"COPY main.{table} TO '{_sql_path(out_dir / 'csv' / f'{table}.csv')}' (FORMAT CSV, HEADER)")
+        counts[table] = int(con.execute(f"SELECT count(*) FROM main.{table}").fetchone()[0])
+    return counts
+
+
 def export_practice(con: duckdb.DuckDBPyConnection, out_dir: Path) -> dict[str, int]:
     (out_dir / "parquet").mkdir(parents=True, exist_ok=True)
     (out_dir / "csv").mkdir(parents=True, exist_ok=True)
@@ -57,12 +67,9 @@ def export_practice(con: duckdb.DuckDBPyConnection, out_dir: Path) -> dict[str, 
     if practice_path.exists():
         practice_path.unlink()
     con.execute(f"ATTACH '{_sql_path(practice_path)}' AS practice")
-    counts: dict[str, int] = {}
-    for table in _tables(con):
-        con.execute(f"CREATE TABLE practice.{table} AS SELECT * FROM main.{table}")
-        con.execute(f"COPY main.{table} TO '{_sql_path(out_dir / 'parquet' / f'{table}.parquet')}' (FORMAT PARQUET)")
-        con.execute(f"COPY main.{table} TO '{_sql_path(out_dir / 'csv' / f'{table}.csv')}' (FORMAT CSV, HEADER)")
-        counts[table] = int(con.execute(f"SELECT count(*) FROM main.{table}").fetchone()[0])
-    con.execute("DETACH practice")
+    try:
+        counts = _copy_tables(con, out_dir)
+    finally:
+        con.execute("DETACH practice")
     (out_dir / "README.md").write_text(_README.format(tables=", ".join(counts)))
     return counts
