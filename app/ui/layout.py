@@ -8,8 +8,8 @@ from nicegui import app, run, ui
 
 from app.model.live import SOURCES
 from app.model.values import player_values
-from app.ui.state import get_state
-from app.ui.theme import BORDER, MUTED, TEXT
+from app.ui.state import AppState, friendly_error, get_state
+from app.ui.theme import BORDER, NEGATIVE, TEXT
 
 SCREEN_LINKS: tuple[tuple[str, str], ...] = (
     ("Heatmap", "/heatmap"),
@@ -41,15 +41,31 @@ def _on_source_change(value: str) -> None:
 
 async def _on_refresh() -> None:
     state = get_state()
+    state.refreshing = True
     try:
         summary = await run.io_bound(state.refresh)
     except Exception as exc:  # UI boundary: caught, recorded, and surfaced, never swallowed
         state.error = str(exc)
-        ui.notify(state.error, type="negative")
+        ui.notify(friendly_error(state.error), type="negative")
         return
+    finally:
+        state.refreshing = False
     state.error = None
     ui.notify(f"Refreshed {summary.league_name}: week {summary.week}", type="positive")
     ui.navigate.reload()
+
+
+async def _on_retry() -> None:
+    state = get_state()
+    state.error = None
+    await _on_refresh()
+
+
+def _refresh_status(state: AppState) -> None:
+    if state.refreshing:
+        ui.label("refreshing…").classes("ff-label")
+    elif state.last_refresh is not None:
+        ui.label(f"updated {state.last_refresh:%H:%M}").classes("ff-label")
 
 
 def _header() -> None:
@@ -61,6 +77,7 @@ def _header() -> None:
             ui.label(state.ctx.name if state.ctx else "FF-ANALYST").style(f"color:{TEXT}")
             if state.ctx is not None:
                 ui.label(f"WEEK {state.ctx.week}").classes("ff-label")
+            _refresh_status(state)
         with ui.row().classes("items-center gap-4"):
             ui.toggle(list(SOURCES), value=state.source, on_change=lambda e: _on_source_change(e.value))
             ui.button("Refresh", on_click=_on_refresh)
@@ -73,8 +90,31 @@ def _header() -> None:
 
 def _error_banner() -> None:
     state = get_state()
-    if state.error:
-        ui.label(state.error).style(f"color:{MUTED}").classes("ff-card q-pa-sm")
+    if not state.error:
+        return
+    with ui.row().classes("ff-card q-pa-sm items-center justify-between gap-4 w-full"):
+        ui.label(friendly_error(state.error)).style(f"color:{NEGATIVE}")
+        ui.button("Retry", on_click=_on_retry)
+
+
+def ensure_loaded(state: AppState) -> bool:
+    """Renders the loading or error block until the league context is ready.
+
+    Returns True when the page should keep rendering, False when it already
+    rendered the loading/error placeholder and the caller should stop.
+    """
+    if state.ctx is not None:
+        return True
+    if state.error is None:
+        ui.label("loading league data").classes("ff-label")
+        ui.spinner(size="lg")
+
+        def _poll() -> None:
+            if state.ctx is not None or state.error is not None:
+                ui.navigate.reload()
+
+        ui.timer(2.0, _poll)
+    return False
 
 
 @contextmanager

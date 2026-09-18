@@ -5,7 +5,7 @@ from nicegui import run, ui
 
 from app.model.managers import ManagerProfile, profiles
 from app.sleeper import SleeperClient
-from app.ui.layout import frame
+from app.ui.layout import ensure_loaded, frame
 from app.ui.state import get_state
 from app.ui.theme import ACCENT, CARD, MUTED, NEGATIVE, POSITIVE, TEXT, avatar, echart_base
 
@@ -118,12 +118,10 @@ def _manager_card(profile: ManagerProfile, ctx) -> None:
 async def managers_page() -> None:
     with frame("Managers"):
         state = get_state()
+        if not ensure_loaded(state):
+            return
         ctx = state.ctx
         con = state.con
-
-        if ctx is None or con is None:
-            ui.label("Run refresh first").style(f"color: {MUTED}").classes("ff-label")
-            return
 
         league_id = ctx.league_id
         cache = getattr(state, "cache", None) or _profiles_cache

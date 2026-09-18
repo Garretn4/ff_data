@@ -5,7 +5,7 @@ import polars as pl
 from nicegui import ui
 
 from app.model.scatter import quadrant_labels, scatter_points
-from app.ui.layout import frame
+from app.ui.layout import ensure_loaded, frame
 from app.ui.state import get_state
 from app.ui.theme import ACCENT, CARD, MUTED, TEXT, echart_base, team_color
 
@@ -14,8 +14,7 @@ from app.ui.theme import ACCENT, CARD, MUTED, TEXT, echart_base, team_color
 def scatter_page() -> None:
     with frame("Buy-Low Sell-High"):
         state = get_state()
-        if state.ctx is None:
-            ui.label("league not loaded yet; press Refresh").style(f"color: {MUTED}").classes("ff-label")
+        if not ensure_loaded(state):
             return
         ctx = state.ctx
         values = state.values

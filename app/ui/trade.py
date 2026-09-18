@@ -13,7 +13,7 @@ from app.model.finder import MIN_GAIN
 from app.model.league import LeagueContext, Roster
 from app.model.lineup import index_weekly
 from app.model.trade import trade_delta
-from app.ui.layout import frame
+from app.ui.layout import ensure_loaded, frame
 from app.ui.state import get_state
 from app.ui.theme import ACCENT, CARD, MUTED, NEGATIVE, POSITIVE, TEXT
 
@@ -101,8 +101,7 @@ def _delta_block(label: str, delta: float, before: float, after: float) -> None:
 def trade_page(me: int = 1, opp: int = 2, give: str = "", get: str = "") -> None:
     with frame("Trade"):
         state = get_state()
-        if state.ctx is None:
-            ui.label("league not loaded yet; press Refresh").style(f"color: {MUTED}").classes("ff-label")
+        if not ensure_loaded(state):
             return
         ctx = state.ctx
         proj = state.primary()

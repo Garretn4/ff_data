@@ -4,7 +4,7 @@ import polars as pl
 from nicegui import ui
 
 from app.ui.cards import player_card
-from app.ui.layout import frame
+from app.ui.layout import ensure_loaded, frame
 from app.ui.state import get_state
 from app.ui.theme import MUTED
 
@@ -13,8 +13,7 @@ from app.ui.theme import MUTED
 def players_page() -> None:
     with frame("Players"):
         state = get_state()
-        if state.ctx is None:
-            ui.label("league not loaded yet; press Refresh").style(f"color: {MUTED}").classes("ff-label")
+        if not ensure_loaded(state):
             return
         ctx = state.ctx
         values = state.values

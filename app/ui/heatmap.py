@@ -5,7 +5,7 @@ import html
 from nicegui import ui
 
 from app.model.heatmap import position_strength, surplus
-from app.ui.layout import frame
+from app.ui.layout import ensure_loaded, frame
 from app.ui.state import get_state
 from app.ui.theme import ACCENT, CARD, MUTED, NEGATIVE, POSITIVE, TEXT, echart_base
 
@@ -14,8 +14,7 @@ from app.ui.theme import ACCENT, CARD, MUTED, NEGATIVE, POSITIVE, TEXT, echart_b
 def heatmap_page() -> None:
     with frame("Heatmap"):
         state = get_state()
-        if state.ctx is None:
-            ui.label("league not loaded yet; press Refresh").style(f"color: {MUTED}").classes("ff-label")
+        if not ensure_loaded(state):
             return
         ctx = state.ctx
         proj = state.primary()
