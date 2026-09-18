@@ -14,11 +14,9 @@ def player_card(row: dict, max_market: float, max_ros: float) -> None:
 
     color = POSITIVE if intrinsic >= 0 else NEGATIVE
 
-    with ui.card().classes("ff-card p-4 flex flex-col gap-3").style("border-left: 4px solid"):
-        style_elem = ui.element("style")
-        style_elem.content = f".player-card-{row['sleeper_id']} {{ border-left-color: {team_color(row.get('nfl_team'))} !important; }}"
-        ui.query(".ff-card").last.add_class(f"player-card-{row['sleeper_id']}")
-
+    with ui.card().classes("ff-card p-4 flex flex-col gap-3").style(
+        f"border-left: 4px solid {team_color(row.get('nfl_team'))}"
+    ):
         with ui.row().classes("gap-3 items-start"):
             ui.image(headshot(row["sleeper_id"], row["position"], row.get("nfl_team"))).classes("rounded w-16 h-16")
 
@@ -42,7 +40,7 @@ def player_card(row: dict, max_market: float, max_ros: float) -> None:
 
         if trend:
             trend_options = {
-                **echart_base,
+                **echart_base(),
                 "xAxis": {"type": "category", "show": False},
                 "yAxis": {"type": "value", "show": False},
                 "grid": {"left": 0, "right": 0, "top": 0, "bottom": 0},
