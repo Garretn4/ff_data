@@ -10,16 +10,17 @@ import duckdb
 import httpx
 import polars as pl
 
-from app.config import Config, load_config
+from app.config import Config, load_config, save_config
 from app.data.nflverse import connect, table_exists
 from app.data.store import Store
 from app.model.league import LeagueContext, load_league_context
 from app.model.live import SOURCES, Projection, project
+from app.model.standings import Matchups, load_matchups
 from app.model.values import player_values
 from app.refresh import RefreshSummary, refresh as run_refresh
 from app.sleeper import SleeperClient
 
-DEFAULT_SOURCE = "model"
+SCOPE_ORDER: tuple[str, ...] = ("league", "history", "model", "source")
 STALE_AFTER = timedelta(hours=1)
 ROOT = Path(__file__).resolve().parent.parent.parent
 LOCK_ERROR_MARKER = "Could not set lock"
@@ -33,10 +34,15 @@ class AppState:
     ctx: LeagueContext | None = None
     projections: dict[str, Projection] = field(default_factory=dict)
     values: pl.DataFrame = field(default_factory=pl.DataFrame)
-    source: str = DEFAULT_SOURCE
+    matchups: Matchups = field(default_factory=dict)
+    source: str = ""
     last_refresh: datetime | None = None
     error: str | None = None
     refreshing: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.source:
+            self.source = self.cfg.source_default
 
     def _connect(self) -> tuple[Store, duckdb.DuckDBPyConnection]:
         if self.store is None:
@@ -46,11 +52,12 @@ class AppState:
         return self.store, self.con
 
     def load(self) -> None:
-        """Rebuild the league context, both projection sources, and the value table."""
+        """Rebuild the league context, both projection sources, the value table, and cached matchups."""
         store, con = self._connect()
         self.ctx = load_league_context(store, self.cfg.league_id)
-        self.projections = {source: project(con, store, self.ctx, source) for source in SOURCES}
+        self.projections = {source: project(con, store, self.ctx, source, params=self.cfg.blend) for source in SOURCES}
         self.values = player_values(self.ctx, con, store, self.primary(), self.secondary())
+        self.matchups = load_matchups(store, self.cfg.league_id, list(range(1, self.ctx.playoff_week_start)))
         self.last_refresh = self._league_refreshed_at()
 
     def refresh(self) -> RefreshSummary:
@@ -93,6 +100,41 @@ class AppState:
                 if roster.display_name.lower() == self.cfg.username.lower():
                     return roster.roster_id
         return self.ctx.rosters[0].roster_id
+
+    def _recompute_model(self) -> None:
+        """Re-run only the model projection with the current blend weights, then rebuild values."""
+        if self.ctx is None:
+            return
+        store, con = self._connect()
+        self.projections["model"] = project(con, store, self.ctx, "model", params=self.cfg.blend)
+        self.values = player_values(self.ctx, con, store, self.primary(), self.secondary())
+
+    def apply_settings(self, new: Config) -> str:
+        """Save new config, apply it by scope, and return the most significant scope (or "none")."""
+        old, self.cfg = self.cfg, new
+        save_config(new.root, new)
+        scopes = settings_scopes(old, new)
+        if "source" in scopes:
+            self.source = new.source_default
+        if "league" in scopes:
+            self.load()
+        elif "model" in scopes:
+            self._recompute_model()
+        return next((scope for scope in SCOPE_ORDER if scope in scopes), "none")
+
+
+def settings_scopes(old: Config, new: Config) -> set[str]:
+    """Which parts of the app a config change touches."""
+    scopes: set[str] = set()
+    if (old.league_id, old.username) != (new.league_id, new.username):
+        scopes.add("league")
+    if (old.stats_from, old.detail_from) != (new.stats_from, new.detail_from):
+        scopes.add("history")
+    if (old.blend_k, old.blend_a, old.blend_b) != (new.blend_k, new.blend_a, new.blend_b):
+        scopes.add("model")
+    if old.source_default != new.source_default:
+        scopes.add("source")
+    return scopes
 
 
 def startup_plan(has_cache: bool, stale: bool) -> tuple[bool, bool]:

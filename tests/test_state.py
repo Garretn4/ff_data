@@ -1,8 +1,10 @@
+from dataclasses import replace
 from pathlib import Path
 
-from app.config import Config
+from app.config import SOURCES as CONFIG_SOURCES, Config, load_config
 from app.model.league import LeagueContext, Roster
-from app.ui.state import AppState, friendly_error, startup_plan
+from app.model.live import SOURCES
+from app.ui.state import SCOPE_ORDER, AppState, friendly_error, settings_scopes, startup_plan
 
 
 def test_startup_plan_loads_cached_league_and_refreshes_when_stale() -> None:
@@ -53,3 +55,47 @@ def test_my_roster_id_falls_back_to_first_roster() -> None:
 
 def test_my_roster_id_is_one_before_the_league_loads() -> None:
     assert AppState(cfg=_cfg("x")).my_roster_id() == 1
+
+
+def test_config_and_live_agree_on_sources() -> None:
+    assert CONFIG_SOURCES == SOURCES
+
+
+def test_settings_scopes_by_field_group() -> None:
+    base = _cfg("ann")
+    assert settings_scopes(base, base) == set()
+    assert settings_scopes(base, replace(base, league_id="2")) == {"league"}
+    assert settings_scopes(base, replace(base, username="bob")) == {"league"}
+    assert settings_scopes(base, replace(base, stats_from=2010)) == {"history"}
+    assert settings_scopes(base, replace(base, detail_from=2021)) == {"history"}
+    assert settings_scopes(base, replace(base, blend_k=9.0)) == {"model"}
+    assert settings_scopes(base, replace(base, source_default="consensus")) == {"source"}
+    assert settings_scopes(base, replace(base, blend_a=0.1, stats_from=2010)) == {"history", "model"}
+
+
+def test_state_source_starts_from_config_default() -> None:
+    assert AppState(cfg=replace(_cfg(""), source_default="consensus")).source == "consensus"
+
+
+def test_apply_settings_saves_and_returns_the_top_scope(tmp_path: Path, monkeypatch) -> None:
+    state = AppState(cfg=replace(_cfg("ann"), root=tmp_path))
+    calls: list[str] = []
+    monkeypatch.setattr(state, "load", lambda: calls.append("load"))
+    monkeypatch.setattr(state, "_recompute_model", lambda: calls.append("model"))
+
+    assert state.apply_settings(replace(state.cfg, source_default="consensus")) == "source"
+    assert state.source == "consensus" and calls == []
+    assert load_config(tmp_path, env={}).source_default == "consensus"
+
+    assert state.apply_settings(replace(state.cfg, blend_k=9.0)) == "model"
+    assert calls == ["model"]
+
+    assert state.apply_settings(replace(state.cfg, blend_b=0.9, stats_from=2010)) == "history"
+    assert calls == ["model", "model"]
+
+    assert state.apply_settings(replace(state.cfg, league_id="42", blend_a=0.2)) == "league"
+    assert calls == ["model", "model", "load"]   # load recomputes projections, so no extra model call
+    assert state.cfg.league_id == "42"
+
+    assert state.apply_settings(state.cfg) == "none"
+    assert SCOPE_ORDER == ("league", "history", "model", "source")
