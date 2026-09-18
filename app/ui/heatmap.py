@@ -22,27 +22,31 @@ def heatmap_page() -> None:
         positions = sorted({s for s in ctx.slots if s not in ("FLEX", "SUPER_FLEX", "REC_FLEX", "WRRB_FLEX")})
         teams = sorted(data["team_name"].unique().to_list())
 
-        median_max = data.group_by("position").agg(["median"]).select("median").max().item()
         surplus_max = max(abs(data["surplus"].min()), abs(data["surplus"].max()))
 
-        heatmap_data: list[list[int | float]] = []
+        heatmap_data: list[dict] = []
         for y_idx, team in enumerate(teams):
             team_data = data.filter(data["team_name"] == team)
             for x_idx, pos in enumerate(positions):
                 pos_data = team_data.filter(team_data["position"] == pos)
                 if len(pos_data) > 0:
-                    value = round(pos_data["surplus"][0], 1)
-                    heatmap_data.append([x_idx, y_idx, value])
+                    points = round(pos_data["points"][0], 1)
+                    median = round(pos_data["median"][0], 1)
+                    surplus = round(pos_data["surplus"][0], 1)
+                    heatmap_data.append({
+                        "value": [x_idx, y_idx, surplus],
+                        "team": team,
+                        "pos": pos,
+                        "points": points,
+                        "median": median,
+                    })
 
         options = {
             **echart_base,
             "title": {"text": "", "left": "center"},
             "tooltip": {
                 "position": "top",
-                "formatter": lambda params: (
-                    f"{teams[params['value'][1]]} {positions[params['value'][0]]}<br/>"
-                    f"Surplus: {params['value'][2]:.1f}"
-                ),
+                "formatter": ":(p) => `${p.data.team} · ${p.data.pos}<br/>surplus ${p.data.value[2]}<br/>points ${p.data.points} · median ${p.data.median}`",
                 "backgroundColor": CARD,
                 "borderColor": "#262626",
                 "textStyle": {"color": TEXT},
