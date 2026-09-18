@@ -29,8 +29,14 @@ def _registered_paths() -> set[str]:
 def _on_source_change(value: str) -> None:
     """Switch the active projection source and rebuild the value table before reloading."""
     state = get_state()
-    state.source = value
-    state.values = player_values(state.ctx, state.con, state.store, state.primary(), state.secondary())
+    try:
+        state.source = value
+        state.values = player_values(state.ctx, state.con, state.store, state.primary(), state.secondary())
+    except Exception as exc:  # UI boundary: caught, recorded, and surfaced, never swallowed
+        state.error = str(exc)
+        ui.notify(f"Could not switch source: {exc}", type="negative")
+        return
+    state.error = None
     ui.navigate.reload()
 
 

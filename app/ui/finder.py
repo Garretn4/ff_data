@@ -90,8 +90,13 @@ def finder_page(me: int = 1, opp: int = ALL_OPPONENTS) -> None:
             spinner.visible = True
             try:
                 results = await run.io_bound(search_deals, ctx, proj, values, picked["me"], picked["opp"])
+            except Exception as exc:  # UI boundary: caught, recorded, and surfaced, never swallowed
+                state.error = str(exc)
+                ui.notify(f"Trade finder failed: {exc}", type="negative")
+                return
             finally:
                 spinner.visible = False
+            state.error = None
             results_view.refresh()
 
         with ui.row().classes("gap-4 items-end"):
