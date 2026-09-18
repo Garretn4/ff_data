@@ -1,10 +1,14 @@
 from dataclasses import replace
 from pathlib import Path
 
+import polars as pl
+
 from app.config import SOURCES as CONFIG_SOURCES, Config, load_config
 from app.model.league import LeagueContext, Roster
-from app.model.live import SOURCES
+from app.model.live import SOURCES, Projection
+from app.model.standings import team_week_projections
 from app.ui.state import SCOPE_ORDER, AppState, friendly_error, settings_scopes, startup_plan
+from tests.test_standings import A, B, POINTS, weekly
 
 
 def test_startup_plan_loads_cached_league_and_refreshes_when_stale() -> None:
@@ -104,3 +108,22 @@ def test_apply_settings_saves_and_returns_the_top_scope(tmp_path: Path, monkeypa
 
 def test_apply_settings_source_only_with_no_ctx(tmp_path: Path) -> None:
     assert AppState(cfg=replace(_cfg("ann"), root=tmp_path)).apply_settings(replace(_cfg("ann"), root=tmp_path, source_default="consensus")) == "source"
+
+
+def test_recompute_model_refreshes_only_the_model_team_weeks(monkeypatch) -> None:
+    ctx = _ctx((A, B))
+    state = AppState(cfg=_cfg("ann"), ctx=ctx)
+    monkeypatch.setattr(state, "_connect", lambda: (None, None))
+    weekly_frame = weekly(POINTS, [3])
+    model_proj = Projection("model", weekly_frame, pl.DataFrame())
+    monkeypatch.setattr("app.ui.state.project", lambda *a, **k: model_proj)
+    monkeypatch.setattr("app.ui.state.player_values", lambda *a, **k: pl.DataFrame())
+    sentinel_frame = pl.DataFrame({"roster_id": [9], "week": [3], "points": [1.0]})
+    state.team_weeks = {"consensus": sentinel_frame, "model": pl.DataFrame()}
+    state.projections = {"consensus": Projection("consensus", weekly_frame, pl.DataFrame()), "model": model_proj}
+
+    state._recompute_model()
+
+    assert state.team_weeks["consensus"] is sentinel_frame
+    expected = team_week_projections(ctx, model_proj)
+    assert state.team_weeks["model"].equals(expected)

@@ -247,10 +247,10 @@ def live_sigma(remaining_a: int, remaining_b: int, n_slots: int) -> float:
     return max(SIGMA * math.sqrt(share), MIN_SIGMA)
 
 
-def league_rows(ctx: LeagueContext, projections: dict[str, Projection], matchups: Matchups, me: int) -> list[dict[str, object]]:
+def league_rows(ctx: LeagueContext, team_weeks: dict[str, pl.DataFrame], matchups: Matchups, me: int) -> list[dict[str, object]]:
     """One row per roster for the League table, ranked by power score."""
     recs = records(matchups, ctx.week)
-    averages = {source: ros_averages(team_week_projections(ctx, proj)) for source, proj in projections.items()}
+    averages = {source: ros_averages(frame) for source, frame in team_weeks.items()}
     power = power_scores(recs, averages["model"])
     rows: list[dict[str, object]] = []
     for roster in ctx.rosters:

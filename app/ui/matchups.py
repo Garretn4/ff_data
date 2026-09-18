@@ -10,8 +10,8 @@ from nicegui import ui
 from app.model.league import LeagueContext, Roster
 from app.model.live import SOURCES, Projection
 from app.model.standings import (
-    EASTERN, Matchups, Pairing, SIGMA, actual_lineup, actual_points, blended_total, kickoffs, lineup_for,
-    live_sigma, player_points, schedule, team_week_projections, week_totals, win_probability,
+    EASTERN, Matchups, Pairing, SIGMA, Slot, actual_lineup, actual_points, blended_total, kickoffs, lineup_for,
+    live_sigma, player_points, schedule, week_totals, win_probability,
 )
 from app.ui.layout import ensure_loaded, frame, on_refresh
 from app.ui.state import AppState, get_state
@@ -31,6 +31,7 @@ class WeekView:
     live: dict[int, dict[str, float]]     # roster_id -> sleeper_id -> live points so far
     current: bool
     blended: dict[int, tuple[float, int]]   # roster_id -> (points so far + projected rest, starters left); current week only
+    lineups: dict[int, list[Slot]]          # roster_id -> optimal lineup; current week only
 
 
 def _roster(ctx: LeagueContext, roster_id: int) -> Roster:
@@ -46,22 +47,24 @@ def _other(source: str) -> str:
 
 def build_week(state: AppState, week: int) -> WeekView:
     ctx = state.ctx
-    totals = {source: week_totals(team_week_projections(ctx, proj), week) for source, proj in state.projections.items()}
+    totals = {source: week_totals(frame, week) for source, frame in state.team_weeks.items()}
     values: pl.DataFrame = state.values
     names = dict(zip(values["sleeper_id"].to_list(), values["name"].to_list())) if not values.is_empty() else {}
     live = {r.roster_id: player_points(state.matchups, week, r.roster_id) for r in ctx.rosters}
     current = week == ctx.week
     blended: dict[int, tuple[float, int]] = {}
+    lineups: dict[int, list[Slot]] = {}
     if current:
         teams = dict(zip(values["sleeper_id"].to_list(), values["nfl_team"].to_list())) if not values.is_empty() else {}
         kicks = kickoffs(state.con, ctx.season, week)
         now = datetime.now(EASTERN)
         for roster in ctx.rosters:
             lineup = lineup_for(ctx, state.primary(), roster, week)
+            lineups[roster.roster_id] = lineup
             blended[roster.roster_id] = blended_total(lineup, live.get(roster.roster_id, {}), teams, kicks, now)
     return WeekView(week=week, played=week < ctx.week, pairings=schedule(state.matchups, week), totals=totals,
                     actual=actual_points(state.matchups, week), names=names, matchups=state.matchups, live=live,
-                    current=current, blended=blended)
+                    current=current, blended=blended, lineups=lineups)
 
 
 def _my_first(pairings: list[Pairing], me: int) -> list[Pairing]:
@@ -106,8 +109,12 @@ def _side(ctx: LeagueContext, proj: Projection, view: WeekView, source: str, ros
         ui.label(headline).style(f"color:{ACCENT};font-size:1.25rem")
         if not view.played:
             ui.label(f"{_other(source)} {view.totals[_other(source)].get(roster.roster_id, 0.0):.1f}").classes("ff-label")
-        rows = actual_lineup(view.matchups, view.week, roster.roster_id, ctx.slots) if view.played \
-            else lineup_for(ctx, proj, roster, view.week)
+        if view.played:
+            rows = actual_lineup(view.matchups, view.week, roster.roster_id, ctx.slots)
+        elif view.current:
+            rows = view.lineups[roster.roster_id]
+        else:
+            rows = lineup_for(ctx, proj, roster, view.week)
         live = view.live.get(roster.roster_id, {})
         for slot, pid, pts in rows:
             with ui.row().classes("justify-between w-full no-wrap"):

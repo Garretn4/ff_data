@@ -35,7 +35,7 @@ def league_page() -> None:
         if not ensure_loaded(state):
             return
         try:
-            rows = league_rows(state.ctx, state.projections, state.matchups, state.my_roster_id())
+            rows = league_rows(state.ctx, state.team_weeks, state.matchups, state.my_roster_id())
         except Exception as exc:  # UI boundary: caught, recorded, and surfaced, never swallowed
             state.error = str(exc)
             ui.notify(f"League table failed: {exc}", type="negative")

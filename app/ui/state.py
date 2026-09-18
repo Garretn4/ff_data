@@ -15,7 +15,7 @@ from app.data.nflverse import connect, table_exists
 from app.data.store import Store
 from app.model.league import LeagueContext, load_league_context
 from app.model.live import SOURCES, Projection, project
-from app.model.standings import Matchups, load_matchups
+from app.model.standings import Matchups, load_matchups, team_week_projections
 from app.model.values import player_values
 from app.refresh import RefreshSummary, refresh as run_refresh
 from app.sleeper import SleeperClient
@@ -35,6 +35,9 @@ class AppState:
     projections: dict[str, Projection] = field(default_factory=dict)
     values: pl.DataFrame = field(default_factory=pl.DataFrame)
     matchups: Matchups = field(default_factory=dict)
+    # source -> team_week_projections(ctx, projections[source]); invalidation points are load() and
+    # _recompute_model() only, never _rebuild_values(), because that never changes projections.
+    team_weeks: dict[str, pl.DataFrame] = field(default_factory=dict)
     source: str = ""
     last_refresh: datetime | None = None
     error: str | None = None
@@ -56,6 +59,7 @@ class AppState:
         store, con = self._connect()
         self.ctx = load_league_context(store, self.cfg.league_id)
         self.projections = {source: project(con, store, self.ctx, source, params=self.cfg.blend) for source in SOURCES}
+        self.team_weeks = {source: team_week_projections(self.ctx, proj) for source, proj in self.projections.items()}
         self._rebuild_values()
         self.matchups = load_matchups(store, self.cfg.league_id, list(range(1, self.ctx.playoff_week_start)))
         self.last_refresh = self._league_refreshed_at()
@@ -114,6 +118,7 @@ class AppState:
             return
         store, con = self._connect()
         self.projections["model"] = project(con, store, self.ctx, "model", params=self.cfg.blend)
+        self.team_weeks["model"] = team_week_projections(self.ctx, self.projections["model"])
         self._rebuild_values()
 
     def apply_settings(self, new: Config) -> str:
