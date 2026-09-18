@@ -2,7 +2,9 @@ import json
 from pathlib import Path
 
 from app.data.store import Store
-from app.model.standings import Pairing, Record, actual_points, load_matchups, records, schedule
+from app.model.standings import (
+    Pairing, Record, actual_lineup, actual_points, load_matchups, player_points, records, schedule,
+)
 
 
 def rows(*triples: tuple[int, int, float]) -> list[dict]:
@@ -60,6 +62,21 @@ def test_schedule_skips_rows_without_a_matchup_id() -> None:
 def test_actual_points_by_roster() -> None:
     assert actual_points(MATCHUPS, 1) == {1: 100.0, 2: 90.0, 3: 80.0, 4: 80.0}
     assert actual_points(MATCHUPS, 9) == {}
+
+
+def test_actual_lineup_reads_starters_in_slot_order() -> None:
+    matchups = {1: [{"roster_id": 1, "matchup_id": 1, "points": 30.5, "starters": ["a1", "0", "a3"],
+                     "starters_points": [20.0, 0.0, 10.5], "players_points": {"a1": 20.0, "a3": 10.5, "a2": 4.0}}]}
+    assert actual_lineup(matchups, 1, 1, ["RB", "WR", "FLEX"]) == [("RB", "a1", 20.0), ("WR", "", 0.0), ("FLEX", "a3", 10.5)]
+    assert actual_lineup(matchups, 1, 9, ["RB"]) == [("RB", "", 0.0)]
+    assert actual_lineup(matchups, 1, 1, ["RB", "WR", "FLEX", "TE"])[3] == ("TE", "", 0.0)
+
+
+def test_player_points_by_roster() -> None:
+    matchups = {2: [{"roster_id": 1, "matchup_id": 1, "points": 24.0, "players_points": {"a1": 24.0, "a2": 0.0}}]}
+    assert player_points(matchups, 2, 1) == {"a1": 24.0, "a2": 0.0}
+    assert player_points(matchups, 2, 7) == {}
+    assert player_points(matchups, 5, 1) == {}
 
 
 import math

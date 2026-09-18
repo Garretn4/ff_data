@@ -9,7 +9,8 @@ from nicegui import ui
 from app.model.league import LeagueContext, Roster
 from app.model.live import SOURCES, Projection
 from app.model.standings import (
-    Matchups, Pairing, actual_points, lineup_for, schedule, team_week_projections, week_totals, win_probability,
+    Matchups, Pairing, actual_lineup, actual_points, lineup_for, player_points, schedule, team_week_projections,
+    week_totals, win_probability,
 )
 from app.ui.layout import ensure_loaded, frame, on_refresh
 from app.ui.state import AppState, get_state
@@ -25,6 +26,8 @@ class WeekView:
     totals: dict[str, dict[int, float]]   # source -> roster_id -> projected points
     actual: dict[int, float]
     names: dict[str, str]
+    matchups: Matchups
+    live: dict[int, dict[str, float]]     # roster_id -> sleeper_id -> live points so far
 
 
 def _roster(ctx: LeagueContext, roster_id: int) -> Roster:
@@ -43,8 +46,9 @@ def build_week(state: AppState, week: int) -> WeekView:
     totals = {source: week_totals(team_week_projections(ctx, proj), week) for source, proj in state.projections.items()}
     values: pl.DataFrame = state.values
     names = dict(zip(values["sleeper_id"].to_list(), values["name"].to_list())) if not values.is_empty() else {}
+    live = {r.roster_id: player_points(state.matchups, week, r.roster_id) for r in ctx.rosters}
     return WeekView(week=week, played=week < ctx.week, pairings=schedule(state.matchups, week), totals=totals,
-                    actual=actual_points(state.matchups, week), names=names)
+                    actual=actual_points(state.matchups, week), names=names, matchups=state.matchups, live=live)
 
 
 def _my_first(pairings: list[Pairing], me: int) -> list[Pairing]:
@@ -69,15 +73,24 @@ def _favourite(view: WeekView, source: str, pairing: Pairing) -> tuple[int, floa
 def _side(ctx: LeagueContext, proj: Projection, view: WeekView, source: str, roster: Roster) -> None:
     with ui.column().classes("flex-1 gap-1"):
         ui.label(roster.team_name).style(f"color:{TEXT};font-weight:600")
-        headline = f"{_score(view, source, roster.roster_id):.1f} {'actual' if view.played else source}"
+        if view.played:
+            headline = f"{_score(view, source, roster.roster_id):.1f} actual"
+        else:
+            so_far = view.actual.get(roster.roster_id, 0.0)
+            headline = f"{_score(view, source, roster.roster_id):.1f} {source} · {so_far:.1f} so far"
         ui.label(headline).style(f"color:{ACCENT};font-size:1.25rem")
         if not view.played:
             ui.label(f"{_other(source)} {view.totals[_other(source)].get(roster.roster_id, 0.0):.1f}").classes("ff-label")
-        for slot, pid, pts in lineup_for(ctx, proj, roster, view.week):
+        rows = actual_lineup(view.matchups, view.week, roster.roster_id, ctx.slots) if view.played \
+            else lineup_for(ctx, proj, roster, view.week)
+        live = view.live.get(roster.roster_id, {})
+        for slot, pid, pts in rows:
             with ui.row().classes("justify-between w-full no-wrap"):
                 ui.label(slot).classes("ff-label").style("min-width:5rem")
                 ui.label(view.names.get(pid, pid) if pid else "—").style(f"color:{TEXT}")
                 ui.label(f"{pts:.1f}").style(f"color:{MUTED}")
+                if not view.played and pid in live:
+                    ui.label(f"{live[pid]:.1f} live").style(f"color:{ACCENT}")
 
 
 def _my_card(state: AppState, view: WeekView, pairing: Pairing, me: int) -> None:
@@ -112,6 +125,8 @@ def _compact_row(ctx: LeagueContext, view: WeekView, source: str, pairing: Pairi
             text = f"{view.actual.get(rid, 0.0):.1f}" if view.played else \
                 f"{view.totals['model'].get(rid, 0.0):.1f} / {view.totals['consensus'].get(rid, 0.0):.1f}"
             ui.label(text).style(f"color:{ACCENT};min-width:7rem;text-align:right")
+            if not view.played:
+                ui.label(f"live {view.actual.get(rid, 0.0):.1f}").classes("ff-label")
             if rid == pairing.home:
                 ui.label("vs").classes("ff-label")
         ui.label(away.team_name).style(f"color:{TEXT};min-width:10rem")

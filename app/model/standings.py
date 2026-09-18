@@ -111,6 +111,32 @@ def actual_points(matchups: Matchups, week: int) -> dict[int, float]:
     return {int(row["roster_id"]): _points(row) for row in matchups.get(week, [])}
 
 
+def _roster_row(matchups: Matchups, week: int, roster_id: int) -> dict[str, Any] | None:
+    for row in matchups.get(week, []):
+        if int(row["roster_id"]) == roster_id:
+            return row
+    return None
+
+
+def actual_lineup(matchups: Matchups, week: int, roster_id: int, slots: list[str]) -> list[Slot]:
+    """(slot, sleeper_id, points) from the starters Sleeper recorded for a played week; "" when the slot was empty."""
+    row = _roster_row(matchups, week, roster_id)
+    starters = list(row.get("starters") or []) if row else []
+    points = list(row.get("starters_points") or []) if row else []
+    out: list[Slot] = []
+    for i, slot in enumerate(slots):
+        pid = str(starters[i]) if i < len(starters) and starters[i] not in (None, "", "0") else ""
+        pts = float(points[i]) if pid and i < len(points) and points[i] is not None else 0.0
+        out.append((slot, pid, pts))
+    return out
+
+
+def player_points(matchups: Matchups, week: int, roster_id: int) -> dict[str, float]:
+    """Live points so far per rostered player for one week, from Sleeper's players_points."""
+    row = _roster_row(matchups, week, roster_id)
+    return {str(pid): float(pts) for pid, pts in ((row or {}).get("players_points") or {}).items() if pts is not None}
+
+
 def team_week_projections(ctx: LeagueContext, proj: Projection) -> pl.DataFrame:
     """Optimal-lineup projected points per roster per remaining week."""
     frames = [
