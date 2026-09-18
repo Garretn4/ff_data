@@ -14,6 +14,10 @@ FANTASYCALC_URL = "https://api.fantasycalc.com/values/current"
 FFC_URL = "https://fantasyfootballcalculator.com/api/v1/adp/ppr"
 
 
+def snapshot_source(league_id: str) -> str:
+    return f"fantasycalc:{league_id}"
+
+
 def _qb_slots(roster_positions: list[str]) -> int:
     return sum(1 for slot in roster_positions if slot in ("QB", "SUPER_FLEX"))
 
@@ -96,4 +100,4 @@ def consensus_snapshot(
 
 def snapshot_fantasycalc(store: Store, http: httpx.Client, league: Mapping[str, Any], taken_at: str) -> int:
     frame = fetch_fantasycalc(http, fantasycalc_params(league))
-    return store.put_snapshot("fantasycalc", taken_at, frame.to_dicts())
+    return store.put_snapshot(snapshot_source(str(league["league_id"])), taken_at, frame.to_dicts())

@@ -18,6 +18,7 @@ from app.data.nflverse import (
 from app.data.scoring import unmapped_keys
 from app.data.store import Store
 from app.market import snapshot_fantasycalc
+from app.model.leagues import discover
 from app.sleeper import SleeperClient
 
 
@@ -30,6 +31,7 @@ class RefreshSummary:
     errors: list[str] = field(default_factory=list)
     unmapped_scoring: list[str] = field(default_factory=list)
     unmatched_players: int = 0
+    leagues: int = 0
 
 
 DEFAULT_PLAYOFF_WEEK_START = 15
@@ -110,6 +112,9 @@ def refresh(
     summary.tables = _ingest(cfg, con, season_loaders, static_loaders)
     summary.tables["sleeper_players"], summary.unmatched_players = _write_players(con, client.players())
     _write_meta(con, league, week, stamp)
+    summaries, user_errors = discover(client, cfg.usernames, cfg.current_season)
+    summary.leagues = len(summaries)
+    summary.errors.extend(user_errors)
     try:
         summary.snapshot_rows = snapshot_fantasycalc(store, market_http, league, stamp.isoformat())
     except httpx.HTTPError as exc:
