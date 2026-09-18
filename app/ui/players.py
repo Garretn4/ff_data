@@ -26,10 +26,8 @@ def players_page() -> None:
             search_input = ui.input(label="Search", value="").classes("flex-1")
 
         def render_players() -> None:
-            for child in grid.children[:]:
-                child.delete()
-            for child in load_more_container.children[:]:
-                child.delete()
+            grid.clear()
+            load_more_container.clear()
 
             filtered = values
             if position_filter.value:
@@ -47,26 +45,32 @@ def players_page() -> None:
             max_market = max(filtered.filter(pl.col("market_value").is_not_null())["market_value"].max() or 0.0, 0.1)
             max_ros = max(filtered.filter(pl.col("ros_primary").is_not_null())["ros_primary"].max() or 0.0, 0.1)
 
-            with grid:
-                for row in filtered.head(30).to_dicts():
-                    player_card(row, max_market, max_ros)
+            loaded = {"count": 0}
 
-            if len(filtered) > 30:
+            def load_batch() -> None:
+                start_idx = loaded["count"]
+                with grid:
+                    for row in filtered.slice(start_idx, 30).to_dicts():
+                        player_card(row, max_market, max_ros)
+                loaded["count"] = start_idx + 30
+
+            def load_more() -> None:
+                load_batch()
+                if loaded["count"] >= len(filtered):
+                    load_more_btn.delete()
+
+            load_batch()
+
+            if loaded["count"] < len(filtered):
                 with load_more_container:
-                    def load_more() -> None:
-                        start_idx = len(grid.children)
-                        for row in filtered.slice(start_idx, 30).to_dicts():
-                            player_card(row, max_market, max_ros)
-                        if start_idx + 30 >= len(filtered):
-                            load_more_btn.delete()
                     load_more_btn = ui.button("Load More", on_click=load_more).classes("w-full")
 
         grid = ui.grid(columns=3).classes("w-full gap-4")
         load_more_container = ui.element("div").classes("w-full")
 
-        position_filter.on_change(render_players)
-        owner_filter.on_change(render_players)
-        search_input.on_change(render_players)
+        position_filter.on_value_change(render_players)
+        owner_filter.on_value_change(render_players)
+        search_input.on_value_change(render_players)
 
         render_players()
 
