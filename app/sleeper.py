@@ -13,6 +13,7 @@ from app.data.store import Store
 BASE_URL = "https://api.sleeper.app/v1"
 PLAYERS_TTL = 86400.0
 STATE_TTL = 3600.0
+USER_TTL = 86400.0
 MAX_CALLS_PER_MINUTE = 600
 
 
@@ -101,3 +102,10 @@ class SleeperClient:
 
     def players(self) -> dict[str, dict[str, Any]]:
         return self._get("/players/nfl", PLAYERS_TTL)
+
+    def user(self, username: str) -> dict[str, Any] | None:
+        """Sleeper user by username; None when Sleeper does not know the name."""
+        return self._get(f"/user/{username}", USER_TTL)
+
+    def user_leagues(self, user_id: str, season: int) -> list[dict[str, Any]]:
+        return self._get(f"/user/{user_id}/leagues/nfl/{season}", None) or []

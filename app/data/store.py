@@ -56,6 +56,10 @@ class Store:
             return None
         return str(body)
 
+    def fetched_at(self, key: str) -> float | None:
+        row = self._conn.execute("SELECT fetched_at FROM http_cache WHERE key = ?", (key,)).fetchone()
+        return None if row is None else float(row[0])
+
     def put_cached(self, key: str, body: str, now: float) -> None:
         with self._conn:
             self._conn.execute(

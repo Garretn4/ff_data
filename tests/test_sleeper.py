@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from app.data.store import Store
-from app.sleeper import PLAYERS_TTL, STATE_TTL, RateLimiter, SleeperClient
+from app.sleeper import PLAYERS_TTL, STATE_TTL, USER_TTL, RateLimiter, SleeperClient
 
 
 class FakeClock:
@@ -105,3 +105,28 @@ def test_matchups_and_transactions_paths(tmp_path: Path) -> None:
     client.transactions("9", 3)
     client.traded_picks("9")
     assert calls == ["/v1/league/9/matchups/3", "/v1/league/9/transactions/3", "/v1/league/9/traded_picks"]
+
+
+def test_user_and_user_leagues_paths_and_ttl(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.url.path == "/v1/user/nobody":
+            return httpx.Response(200, text="null")
+        if request.url.path.startswith("/v1/user/"):
+            if "/leagues/" in request.url.path:
+                return httpx.Response(200, json=[{"league_id": "9", "name": "L"}])
+            return httpx.Response(200, json={"user_id": "u1", "display_name": "Ann"})
+        return httpx.Response(200, json={})
+
+    clock = FakeClock()
+    client = make_client(tmp_path, handler, clock)
+    assert client.user("ann") == {"user_id": "u1", "display_name": "Ann"}
+    assert client.user("ann")["user_id"] == "u1"
+    clock.t += USER_TTL + 1
+    client.user("ann")
+    assert calls.count("/v1/user/ann") == 2
+    assert client.user("nobody") is None
+    assert client.user_leagues("u1", 2026) == [{"league_id": "9", "name": "L"}]
+    assert calls[-1] == "/v1/user/u1/leagues/nfl/2026"
