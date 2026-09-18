@@ -15,7 +15,6 @@ SCREEN_LINKS: tuple[tuple[str, str], ...] = (
     ("Heatmap", "/heatmap"),
     ("Players", "/players"),
     ("Scatter", "/scatter"),
-    ("Lineup", "/lineup"),
     ("Trade", "/trade"),
     ("Finder", "/finder"),
     ("Managers", "/managers"),

@@ -7,7 +7,6 @@ SCREEN_MODULES: tuple[str, ...] = (
     "app.ui.heatmap",
     "app.ui.players",
     "app.ui.scatter",
-    "app.ui.lineup",
     "app.ui.trade",
     "app.ui.finder",
     "app.ui.managers",
