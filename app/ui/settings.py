@@ -88,6 +88,7 @@ def settings_page() -> None:
                 refresh_row.visible = scope == "history"
 
             save = ui.button("Save", on_click=on_save)
+            check()
             with refresh_row:
                 ui.label("New history range is saved but not loaded.").style(f"color:{MUTED}")
                 ui.button("Refresh now", on_click=on_refresh).props(f"color={POSITIVE}")
