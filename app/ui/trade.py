@@ -12,7 +12,7 @@ from nicegui import ui
 from app.model.finder import MIN_GAIN
 from app.model.league import LeagueContext, Roster
 from app.model.lineup import index_weekly
-from app.model.trade import startable, trade_delta
+from app.model.trade import trade_delta
 from app.ui.layout import frame
 from app.ui.state import get_state
 from app.ui.theme import ACCENT, CARD, MUTED, NEGATIVE, POSITIVE, TEXT
@@ -58,8 +58,8 @@ def _roster_by_id(ctx: LeagueContext, roster_id: int) -> Roster:
     raise ValueError(f"roster {roster_id} not in league")
 
 
-def _ranked_startable(values: pl.DataFrame, roster: Roster) -> list[tuple[str, str]]:
-    ids = list(startable(roster))
+def _ranked_players(values: pl.DataFrame, roster: Roster) -> list[tuple[str, str]]:
+    ids = list(roster.players)
     if not ids:
         return []
     frame_ids = pl.DataFrame({"sleeper_id": ids})
@@ -83,7 +83,7 @@ def _render_side(ctx: LeagueContext, values: pl.DataFrame, side: _Side, title: s
         ui.select(options, value=side.roster_id, on_change=lambda e: on_roster_change(e.value)).classes("w-full")
         roster = _roster_by_id(ctx, side.roster_id)
         with ui.row().classes("gap-2 flex-wrap"):
-            for player_id, name in _ranked_startable(values, roster):
+            for player_id, name in _ranked_players(values, roster):
                 background, text_color = _chip_colors(player_id in side.given)
                 ui.chip(name, selectable=True, selected=player_id in side.given, color=background, text_color=text_color,
                         on_click=lambda _, pid=player_id: on_toggle(pid))

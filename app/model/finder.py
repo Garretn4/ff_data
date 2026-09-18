@@ -21,11 +21,9 @@ def _roster(ctx: LeagueContext, roster_id: int) -> Roster:
 
 
 def _top_players(values: pl.DataFrame, roster: Roster, top_n: int) -> list[str]:
-    startable_ids = startable(roster)
     score = pl.coalesce(pl.col("intrinsic"), pl.col("ros_primary"), pl.lit(0.0))
     mine = (
         values.filter(pl.col("roster_id") == roster.roster_id)
-        .filter(pl.col("sleeper_id").is_in(list(startable_ids)))
         .with_columns(score.alias("score"))
         .sort("score", descending=True)
     )
