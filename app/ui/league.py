@@ -20,10 +20,11 @@ COLUMNS: list[dict[str, object]] = [
 ]
 
 
-def _team_cell_slot() -> str:
+def _row_slot() -> str:
     return (
-        '<q-td :props="props" :style="props.row.mine ? \'color:' + ACCENT + ';font-weight:600\' : \'\'">'
-        "{{ props.value }}</q-td>"
+        '<q-tr :props="props" :style="props.row.mine ? \'color:' + ACCENT + ';font-weight:600\' : \'\'">'
+        '<q-td v-for="col in props.cols" :key="col.name" :props="props">{{ col.value }}</q-td>'
+        "</q-tr>"
     )
 
 
@@ -41,7 +42,7 @@ def league_page() -> None:
             return
         table = ui.table(columns=COLUMNS, rows=rows, row_key="id").classes("w-full ff-card")
         table.props("flat dense dark")
-        table.add_slot("body-cell-team", _team_cell_slot())
+        table.add_slot("body", _row_slot())
         pct = int(PROJECTION_WEIGHT * 100)
         ui.label(
             f"Power = {pct}% z-score of model projected points per remaining week "
