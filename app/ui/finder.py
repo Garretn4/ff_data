@@ -63,6 +63,9 @@ def search_deals(ctx: LeagueContext, proj: Projection, values: pl.DataFrame, me:
 def finder_page(me: int = 1, opp: int = ALL_OPPONENTS) -> None:
     with frame("Finder"):
         state = get_state()
+        if state.ctx is None:
+            ui.label("league not loaded yet; press Refresh").style(f"color: {MUTED}").classes("ff-label")
+            return
         ctx = state.ctx
         proj = state.primary()
         values = state.values

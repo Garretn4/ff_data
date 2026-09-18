@@ -14,6 +14,9 @@ from app.ui.theme import ACCENT, CARD, MUTED, TEXT, echart_base, team_color
 def scatter_page() -> None:
     with frame("Buy-Low Sell-High"):
         state = get_state()
+        if state.ctx is None:
+            ui.label("league not loaded yet; press Refresh").style(f"color: {MUTED}").classes("ff-label")
+            return
         ctx = state.ctx
         values = state.values
         source = state.source

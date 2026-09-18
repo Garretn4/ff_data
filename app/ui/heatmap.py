@@ -14,6 +14,9 @@ from app.ui.theme import ACCENT, CARD, MUTED, NEGATIVE, POSITIVE, TEXT, echart_b
 def heatmap_page() -> None:
     with frame("Heatmap"):
         state = get_state()
+        if state.ctx is None:
+            ui.label("league not loaded yet; press Refresh").style(f"color: {MUTED}").classes("ff-label")
+            return
         ctx = state.ctx
         proj = state.primary()
         source = state.source

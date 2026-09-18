@@ -13,6 +13,9 @@ from app.ui.theme import MUTED
 def players_page() -> None:
     with frame("Players"):
         state = get_state()
+        if state.ctx is None:
+            ui.label("league not loaded yet; press Refresh").style(f"color: {MUTED}").classes("ff-label")
+            return
         ctx = state.ctx
         values = state.values
         source = state.source

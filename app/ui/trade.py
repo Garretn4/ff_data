@@ -101,6 +101,9 @@ def _delta_block(label: str, delta: float, before: float, after: float) -> None:
 def trade_page(me: int = 1, opp: int = 2, give: str = "", get: str = "") -> None:
     with frame("Trade"):
         state = get_state()
+        if state.ctx is None:
+            ui.label("league not loaded yet; press Refresh").style(f"color: {MUTED}").classes("ff-label")
+            return
         ctx = state.ctx
         proj = state.primary()
         values = state.values
