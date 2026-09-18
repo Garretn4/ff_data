@@ -17,7 +17,7 @@
 - No AI attribution anywhere: no generated-with comments, no trailers in commits, no signatures, no watermarks. Commit messages are plain imperative sentences.
 - Scoring rules and roster slots always come from the league dict loaded from the cache. Never hardcode PPR, slot lists, team count, or week counts outside tests. NFL team colors and CDN URL patterns are static reference data and may live in `app/ui/theme.py`.
 - Tests never hit the network. UI modules are not unit tested (no extra test dependency); they are verified by launching the app in Task 14 and driving it.
-- Dark theme, one accent color (`#F5A524`), team colors only as thin borders or small badges. Cards, not tables, wherever possible. ECharts for every chart. Refresh button plus refresh on launch; no scheduler.
+- Visual direction (Garret, 2026-09-17): black, high contrast, terminal-esque. Pure black background `#000000`, cards `#0A0A0A` with a 1px `#262626` border and 4px corners, text `#F2F2F2`, muted `#8A8F98`, one accent `#F5A524`, monospace type everywhere (`"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace`), uppercase 11px letter-spaced section labels, no gradients, no shadows. Team colors only as a 3px left border or a small badge. Cards, not tables, wherever possible. ECharts for every chart with the same palette. Refresh button plus refresh on launch; no scheduler.
 - Rulings inherited from Plan A: the model-based projection is not the default until the gate passes; `projection_source` defaults to `"consensus"` and every screen labels which source it shows. Availability comes from `app/model/availability.py` (Task 14 of Plan A).
 - Run tests with `./.venv/bin/python -m pytest -q` from the repo root.
 
@@ -1148,7 +1148,7 @@ git commit -m "Add manager profiles from league transaction history"
 - Modify: `app/__main__.py` (add `run` subcommand calling `app.main.run_app()`)
 
 **Interfaces:**
-- `app/ui/theme.py`: `ACCENT = "#F5A524"`, `BG = "#0F1115"`, `CARD = "#171A21"`, `TEXT = "#E6E8EB"`, `MUTED = "#8B93A1"`, `POSITIVE = "#3FB950"`, `NEGATIVE = "#F85149"`; `TEAM_COLORS: dict[str, str]` for the 32 NFL abbreviations (primary color hex each); `headshot(sleeper_id: str, position: str, nfl_team: str | None) -> str` (players: `https://sleepercdn.com/content/nfl/players/thumb/{id}.jpg`; DEF: `https://sleepercdn.com/images/team_logos/nfl/{team.lower()}.png`); `avatar(avatar_id: str | None) -> str | None` (`https://sleepercdn.com/avatars/thumbs/{id}`); `echart_base() -> dict` (dark background transparent, text color, accent as first color, grid margins); `apply_theme() -> None` calling `ui.colors(primary=ACCENT, ...)` and `ui.dark_mode().enable()` plus a small CSS block for card backgrounds and the app font.
+- `app/ui/theme.py`: `ACCENT = "#F5A524"`, `BG = "#000000"`, `CARD = "#0A0A0A"`, `BORDER = "#262626"`, `TEXT = "#F2F2F2"`, `MUTED = "#8A8F98"`, `FONT` monospace stack, `POSITIVE = "#3FB950"`, `NEGATIVE = "#F85149"`; `TEAM_COLORS: dict[str, str]` for the 32 NFL abbreviations (primary color hex each); `headshot(sleeper_id: str, position: str, nfl_team: str | None) -> str` (players: `https://sleepercdn.com/content/nfl/players/thumb/{id}.jpg`; DEF: `https://sleepercdn.com/images/team_logos/nfl/{team.lower()}.png`); `avatar(avatar_id: str | None) -> str | None` (`https://sleepercdn.com/avatars/thumbs/{id}`); `echart_base() -> dict` (dark background transparent, text color, accent as first color, grid margins); `apply_theme() -> None` calling `ui.colors(primary=ACCENT, ...)` and `ui.dark_mode().enable()` plus a small CSS block for card backgrounds and the app font.
 - `app/ui/state.py`: `class AppState` holding `cfg, store, con, ctx, projections: dict[str, Projection], values: pl.DataFrame, source: str, last_refresh: datetime | None, error: str | None`; `load(self) -> None` builds ctx, both projections, values from the caches; `refresh(self) -> RefreshSummary` runs `app.refresh.refresh` with a real SleeperClient(refresh=True) then `load()`; `primary(self) -> Projection`; `secondary(self) -> Projection`; module-level `STATE = AppState()` lazily initialized by `get_state()`.
 - `app/ui/layout.py`: `frame(title: str)` context manager yielding a content container; renders the header with league name, `Week N`, projection-source toggle (`ui.toggle(["consensus", "model"])` bound to state), Refresh button (runs `state.refresh` via `run.io_bound`, shows `ui.notify` with the summary or error, then `ui.navigate.reload()`), and a nav row of links to the six screens. Screens register with `@ui.page('/heatmap')` etc. in their own modules and are imported by `app/main.py`.
 - `app/main.py`: `run_app() -> None`: `apply_theme()`, import screen modules, redirect `/` to `/heatmap`, then `ui.run(native=True, dark=True, title="ff-analyst", window_size=(1440, 900), reload=False, show=False)`. On startup (`app.on_startup`) call `get_state().refresh()` in a background task if the last Sleeper league fetch is older than one hour, else `load()`.
@@ -1164,10 +1164,12 @@ from __future__ import annotations
 from nicegui import ui
 
 ACCENT = "#F5A524"
-BG = "#0F1115"
-CARD = "#171A21"
-TEXT = "#E6E8EB"
-MUTED = "#8B93A1"
+BG = "#000000"
+CARD = "#0A0A0A"
+BORDER = "#262626"
+TEXT = "#F2F2F2"
+MUTED = "#8A8F98"
+FONT = '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace'
 POSITIVE = "#3FB950"
 NEGATIVE = "#F85149"
 TEAM_COLORS: dict[str, str] = {
@@ -1202,7 +1204,11 @@ def echart_base() -> dict:
 def apply_theme() -> None:
     ui.colors(primary=ACCENT, secondary=MUTED, accent=ACCENT, dark=BG, positive=POSITIVE, negative=NEGATIVE)
     ui.dark_mode().enable()
-    ui.add_head_html(f"<style>body{{background:{BG};color:{TEXT}}} .ff-card{{background:{CARD};border-radius:12px}}</style>")
+    ui.add_head_html(
+        f"<style>body{{background:{BG};color:{TEXT};font-family:{FONT}}} "
+        f".ff-card{{background:{CARD};border:1px solid {BORDER};border-radius:4px}} "
+        f".ff-label{{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:{MUTED}}}</style>"
+    )
 ```
 
 State and layout follow the interface text above; the implementer writes them in the same style. `refresh` must catch `Exception` at the UI boundary only, store the message in `state.error`, and surface it in a `ui.notify(type="negative")`; nothing is swallowed silently.
