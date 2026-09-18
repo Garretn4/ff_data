@@ -7,6 +7,7 @@ from typing import Iterator
 from nicegui import app, run, ui
 
 from app.model.live import SOURCES
+from app.model.values import player_values
 from app.ui.state import get_state
 from app.ui.theme import BORDER, MUTED, TEXT
 
@@ -26,7 +27,11 @@ def _registered_paths() -> set[str]:
 
 
 def _on_source_change(value: str) -> None:
-    get_state().source = value
+    """Switch the active projection source and rebuild the value table before reloading."""
+    state = get_state()
+    state.source = value
+    state.values = player_values(state.ctx, state.con, state.store, state.primary(), state.secondary())
+    ui.navigate.reload()
 
 
 async def _on_refresh() -> None:
