@@ -37,8 +37,11 @@ CREATE INDEX IF NOT EXISTS ix_snapshots_source_time ON market_snapshots (source,
 class Store:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        # AppState shares this connection across `run.io_bound` calls, which each run on a
-        # different worker thread; the store is never touched by two threads concurrently.
+        # AppState shares this connection across NiceGUI worker threads (each `run.io_bound`
+        # call runs on its own thread). This build's sqlite3 module reports threadsafety 3
+        # (serialized): the underlying SQLite library was compiled to allow the same
+        # connection to be used from multiple threads without external locking, so
+        # concurrent calls here are safe.
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.executescript(_SCHEMA)
 
