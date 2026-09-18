@@ -1,9 +1,13 @@
 import json
+from datetime import datetime
 from pathlib import Path
+
+import duckdb
 
 from app.data.store import Store
 from app.model.standings import (
-    Pairing, Record, actual_lineup, actual_points, load_matchups, player_points, records, schedule,
+    EASTERN, Pairing, Record, SIGMA, actual_lineup, actual_points, blended_total, kickoffs, live_sigma,
+    load_matchups, player_points, records, schedule,
 )
 
 
@@ -186,3 +190,44 @@ def test_league_rows_before_any_games() -> None:
     proj = Projection("model", weekly(POINTS, [3]), pl.DataFrame())
     rows = league_rows(ctx, {"model": proj, "consensus": proj}, {}, me=1)
     assert [r["record"] for r in rows] == ["0-0", "0-0"] and [r["id"] for r in rows] == [2, 1]
+
+
+def _schedule_con() -> duckdb.DuckDBPyConnection:
+    con = duckdb.connect()
+    con.execute("CREATE TABLE schedules (season INT, week INT, game_type VARCHAR, gameday DATE, gametime VARCHAR, "
+                "home_team VARCHAR, away_team VARCHAR)")
+    con.execute("INSERT INTO schedules VALUES (2026, 2, 'REG', DATE '2026-09-17', '20:15', 'DET', 'BUF'), "
+                "(2026, 2, 'REG', DATE '2026-09-20', '13:00', 'ATL', 'CAR'), "
+                "(2026, 2, 'REG', DATE '2026-09-20', NULL, 'NYJ', 'MIA'), "
+                "(2026, 3, 'REG', DATE '2026-09-24', '20:15', 'KC', 'LAC')")
+    return con
+
+
+def test_kickoffs_map_both_teams_to_an_eastern_datetime() -> None:
+    kicks = kickoffs(_schedule_con(), 2026, 2)
+    assert kicks["BUF"] == kicks["DET"] == datetime(2026, 9, 17, 20, 15, tzinfo=EASTERN)
+    assert kicks["NYJ"] == datetime(2026, 9, 20, 13, 0, tzinfo=EASTERN)   # missing time defaults to 13:00
+    assert "KC" not in kicks
+
+
+def test_blended_total_uses_live_points_once_a_game_has_kicked_off() -> None:
+    lineup = [("QB", "allen", 24.5), ("RB", "bijan", 18.0), ("WR", "", 0.0), ("TE", "kelce", 9.0)]
+    live = {"allen": 40.8, "bijan": 0.0, "kelce": 0.0}
+    teams = {"allen": "BUF", "bijan": "ATL", "kelce": "KC"}
+    kicks = {"BUF": datetime(2026, 9, 17, 20, 15, tzinfo=EASTERN), "ATL": datetime(2026, 9, 20, 13, 0, tzinfo=EASTERN)}
+    now = datetime(2026, 9, 18, 12, 0, tzinfo=EASTERN)
+    assert blended_total(lineup, live, teams, kicks, now) == (40.8 + 18.0 + 9.0, 2)
+    later = datetime(2026, 9, 20, 16, 0, tzinfo=EASTERN)
+    assert blended_total(lineup, live, teams, kicks, later) == (40.8 + 0.0 + 9.0, 1)
+
+
+def test_live_sigma_shrinks_with_starters_left() -> None:
+    assert live_sigma(10, 10, 10) == SIGMA
+    assert math.isclose(live_sigma(5, 5, 10), SIGMA * math.sqrt(0.5))
+    assert 0.0 < live_sigma(0, 0, 10) < 1.0
+    assert live_sigma(0, 0, 0) == SIGMA
+
+
+def test_win_probability_accepts_a_custom_sigma() -> None:
+    assert win_probability(110.0, 100.0, sigma=SIGMA) == win_probability(110.0, 100.0)
+    assert win_probability(110.0, 100.0, sigma=1.0) > 0.999

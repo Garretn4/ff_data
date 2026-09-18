@@ -4,9 +4,12 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
+from datetime import datetime
 from statistics import mean, pstdev
 from typing import Any
+from zoneinfo import ZoneInfo
 
+import duckdb
 import polars as pl
 
 from app.data.store import Store
@@ -20,6 +23,10 @@ SIGMA = 20.0             # assumed std dev of one team's weekly score
 PROJECTION_WEIGHT = 0.6  # share of the power score from projected strength
 TEAM_WEEKS_SCHEMA = {"roster_id": pl.Int64, "week": pl.Int64, "points": pl.Float64}
 Slot = tuple[str, str, float]
+
+EASTERN = ZoneInfo("America/New_York")
+DEFAULT_KICKOFF = "13:00"
+MIN_SIGMA = 0.5   # all starters done: the result is decided, keep erf finite
 
 
 @dataclass(frozen=True)
@@ -196,9 +203,48 @@ def lineup_for(ctx: LeagueContext, proj: Projection, roster: Roster, week: int) 
             for i, slot in enumerate(ctx.slots)]
 
 
-def win_probability(points_a: float, points_b: float) -> float:
-    """P(a beats b) when each side's score has std dev SIGMA: Phi(diff / (SIGMA * sqrt 2))."""
-    return 0.5 * (1.0 + math.erf((points_a - points_b) / (2.0 * SIGMA)))
+def win_probability(points_a: float, points_b: float, sigma: float = SIGMA) -> float:
+    """P(a beats b) when each side's score has std dev sigma: Phi(diff / (sigma * sqrt 2))."""
+    return 0.5 * (1.0 + math.erf((points_a - points_b) / (2.0 * sigma)))
+
+
+def kickoffs(con: duckdb.DuckDBPyConnection, season: int, week: int) -> dict[str, datetime]:
+    """NFL team -> kickoff (Eastern) for one regular-season week, from the nflverse schedule."""
+    rows = con.execute(
+        "SELECT home_team, away_team, gameday, gametime FROM schedules "
+        "WHERE season = ? AND week = ? AND game_type = 'REG'", [season, week],
+    ).fetchall()
+    out: dict[str, datetime] = {}
+    for home, away, day, time in rows:
+        hour, minute = (time or DEFAULT_KICKOFF).split(":")
+        when = datetime(day.year, day.month, day.day, int(hour), int(minute), tzinfo=EASTERN)
+        out[str(home)] = when
+        out[str(away)] = when
+    return out
+
+
+def blended_total(lineup: list[Slot], live: dict[str, float], teams: dict[str, str],
+                  kicks: dict[str, datetime], now: datetime) -> tuple[float, int]:
+    """(points, starters still to play): live points once a starter's game has kicked off, projection before."""
+    total, remaining = 0.0, 0
+    for _, pid, projected in lineup:
+        if not pid:
+            continue
+        kickoff = kicks.get(teams.get(pid, ""))
+        if kickoff is not None and kickoff <= now:
+            total += live.get(pid, 0.0)
+        else:
+            total += projected
+            remaining += 1
+    return total, remaining
+
+
+def live_sigma(remaining_a: int, remaining_b: int, n_slots: int) -> float:
+    """Score spread shrinks with the square root of the share of starters still to play."""
+    if n_slots <= 0:
+        return SIGMA
+    share = (remaining_a + remaining_b) / (2.0 * n_slots)
+    return max(SIGMA * math.sqrt(share), MIN_SIGMA)
 
 
 def league_rows(ctx: LeagueContext, projections: dict[str, Projection], matchups: Matchups, me: int) -> list[dict[str, object]]:

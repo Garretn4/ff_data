@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 import polars as pl
 from nicegui import ui
@@ -9,8 +10,8 @@ from nicegui import ui
 from app.model.league import LeagueContext, Roster
 from app.model.live import SOURCES, Projection
 from app.model.standings import (
-    Matchups, Pairing, actual_lineup, actual_points, lineup_for, player_points, schedule, team_week_projections,
-    week_totals, win_probability,
+    EASTERN, Matchups, Pairing, SIGMA, actual_lineup, actual_points, blended_total, kickoffs, lineup_for,
+    live_sigma, player_points, schedule, team_week_projections, week_totals, win_probability,
 )
 from app.ui.layout import ensure_loaded, frame, on_refresh
 from app.ui.state import AppState, get_state
@@ -28,6 +29,8 @@ class WeekView:
     names: dict[str, str]
     matchups: Matchups
     live: dict[int, dict[str, float]]     # roster_id -> sleeper_id -> live points so far
+    current: bool
+    blended: dict[int, tuple[float, int]]   # roster_id -> (points so far + projected rest, starters left); current week only
 
 
 def _roster(ctx: LeagueContext, roster_id: int) -> Roster:
@@ -47,8 +50,18 @@ def build_week(state: AppState, week: int) -> WeekView:
     values: pl.DataFrame = state.values
     names = dict(zip(values["sleeper_id"].to_list(), values["name"].to_list())) if not values.is_empty() else {}
     live = {r.roster_id: player_points(state.matchups, week, r.roster_id) for r in ctx.rosters}
+    current = week == ctx.week
+    blended: dict[int, tuple[float, int]] = {}
+    if current:
+        teams = dict(zip(values["sleeper_id"].to_list(), values["nfl_team"].to_list())) if not values.is_empty() else {}
+        kicks = kickoffs(state.con, ctx.season, week)
+        now = datetime.now(EASTERN)
+        for roster in ctx.rosters:
+            lineup = lineup_for(ctx, state.primary(), roster, week)
+            blended[roster.roster_id] = blended_total(lineup, live.get(roster.roster_id, {}), teams, kicks, now)
     return WeekView(week=week, played=week < ctx.week, pairings=schedule(state.matchups, week), totals=totals,
-                    actual=actual_points(state.matchups, week), names=names, matchups=state.matchups, live=live)
+                    actual=actual_points(state.matchups, week), names=names, matchups=state.matchups, live=live,
+                    current=current, blended=blended)
 
 
 def _my_first(pairings: list[Pairing], me: int) -> list[Pairing]:
@@ -59,15 +72,25 @@ def _my_first(pairings: list[Pairing], me: int) -> list[Pairing]:
 def _score(view: WeekView, source: str, roster_id: int) -> float:
     if view.played:
         return view.actual.get(roster_id, 0.0)
+    if view.current:
+        return view.blended.get(roster_id, (0.0, 0))[0]
     return view.totals[source].get(roster_id, 0.0)
 
 
-def _favourite(view: WeekView, source: str, pairing: Pairing) -> tuple[int, float] | None:
+def _sigma(view: WeekView, ctx: LeagueContext, pairing: Pairing) -> float:
+    if not view.current or pairing.away is None:
+        return SIGMA
+    left_home = view.blended.get(pairing.home, (0.0, len(ctx.slots)))[1]
+    left_away = view.blended.get(pairing.away, (0.0, len(ctx.slots)))[1]
+    return live_sigma(left_home, left_away, len(ctx.slots))
+
+
+def _favourite(view: WeekView, ctx: LeagueContext, source: str, pairing: Pairing) -> tuple[int, float] | None:
     if pairing.away is None:
         return None
     home, away = _score(view, source, pairing.home), _score(view, source, pairing.away)
     fav = pairing.home if home >= away else pairing.away
-    return fav, win_probability(max(home, away), min(home, away))
+    return fav, win_probability(max(home, away), min(home, away), sigma=_sigma(view, ctx, pairing))
 
 
 def _side(ctx: LeagueContext, proj: Projection, view: WeekView, source: str, roster: Roster) -> None:
@@ -75,9 +98,11 @@ def _side(ctx: LeagueContext, proj: Projection, view: WeekView, source: str, ros
         ui.label(roster.team_name).style(f"color:{TEXT};font-weight:600")
         if view.played:
             headline = f"{_score(view, source, roster.roster_id):.1f} actual"
+        elif view.current:
+            projected = view.totals[source].get(roster.roster_id, 0.0)
+            headline = f"{_score(view, source, roster.roster_id):.1f} live blend · {projected:.1f} {source}"
         else:
-            so_far = view.actual.get(roster.roster_id, 0.0)
-            headline = f"{_score(view, source, roster.roster_id):.1f} {source} · {so_far:.1f} so far"
+            headline = f"{_score(view, source, roster.roster_id):.1f} {source}"
         ui.label(headline).style(f"color:{ACCENT};font-size:1.25rem")
         if not view.played:
             ui.label(f"{_other(source)} {view.totals[_other(source)].get(roster.roster_id, 0.0):.1f}").classes("ff-label")
@@ -89,7 +114,7 @@ def _side(ctx: LeagueContext, proj: Projection, view: WeekView, source: str, ros
                 ui.label(slot).classes("ff-label").style("min-width:5rem")
                 ui.label(view.names.get(pid, pid) if pid else "—").style(f"color:{TEXT}")
                 ui.label(f"{pts:.1f}").style(f"color:{MUTED}")
-                if not view.played and pid in live:
+                if view.current and pid in live:
                     ui.label(f"{live[pid]:.1f} live").style(f"color:{ACCENT}")
 
 
@@ -104,7 +129,7 @@ def _my_card(state: AppState, view: WeekView, pairing: Pairing, me: int) -> None
         with ui.row().classes("gap-8 w-full no-wrap"):
             _side(ctx, proj, view, source, _roster(ctx, me))
             _side(ctx, proj, view, source, _roster(ctx, opp_id))
-        fav = _favourite(view, source, pairing)
+        fav = _favourite(view, ctx, source, pairing)
         if fav is not None and not view.played:
             prob = fav[1] if fav[0] == me else 1.0 - fav[1]
             ui.label(f"Win probability {prob:.0%}").style(f"color:{POSITIVE if prob >= 0.5 else MUTED}")
@@ -125,12 +150,12 @@ def _compact_row(ctx: LeagueContext, view: WeekView, source: str, pairing: Pairi
             text = f"{view.actual.get(rid, 0.0):.1f}" if view.played else \
                 f"{view.totals['model'].get(rid, 0.0):.1f} / {view.totals['consensus'].get(rid, 0.0):.1f}"
             ui.label(text).style(f"color:{ACCENT};min-width:7rem;text-align:right")
-            if not view.played:
-                ui.label(f"live {view.actual.get(rid, 0.0):.1f}").classes("ff-label")
+            if view.current:
+                ui.label(f"live {view.blended.get(rid, (0.0, 0))[0]:.1f}").classes("ff-label")
             if rid == pairing.home:
                 ui.label("vs").classes("ff-label")
         ui.label(away.team_name).style(f"color:{TEXT};min-width:10rem")
-        fav = _favourite(view, source, pairing)
+        fav = _favourite(view, ctx, source, pairing)
         if fav is not None:
             label = "won" if view.played else f"{fav[1]:.0%}"
             ui.chip(f"{_roster(ctx, fav[0]).team_name} {label}").props(f"color={ACCENT} outline").classes("text-xs")
