@@ -42,7 +42,7 @@ def _on_source_change(value: str) -> None:
     ui.navigate.reload()
 
 
-async def _on_refresh() -> None:
+async def on_refresh() -> None:
     state = get_state()
     state.refreshing = True
     try:
@@ -61,7 +61,7 @@ async def _on_refresh() -> None:
 async def _on_retry() -> None:
     state = get_state()
     state.error = None
-    await _on_refresh()
+    await on_refresh()
 
 
 def _refresh_status(state: AppState) -> None:
@@ -83,7 +83,7 @@ def _header() -> None:
             _refresh_status(state)
         with ui.row().classes("items-center gap-4"):
             ui.toggle(list(SOURCES), value=state.source, on_change=lambda e: _on_source_change(e.value))
-            ui.button("Refresh", on_click=_on_refresh)
+            ui.button("Refresh", on_click=on_refresh)
     with ui.row().classes("items-center gap-4 q-px-md").style(f"border-bottom:1px solid {BORDER}"):
         registered = _registered_paths()
         for label, path in SCREEN_LINKS:
