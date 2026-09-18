@@ -49,6 +49,12 @@ def cmd_refresh(cfg: Config) -> int:
     return 1 if summary.errors else 0
 
 
+def cmd_run() -> int:
+    from app.main import run_app
+    run_app()
+    return 0
+
+
 def cmd_export(cfg: Config, out: Path) -> int:
     con = connect(cfg.duckdb_path)
     counts = export_practice(con, out)
@@ -93,6 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ff-analyst")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("refresh")
+    sub.add_parser("run")
     export = sub.add_parser("export")
     export.add_argument("--out", type=Path, default=Path.home() / "ff-analyst-data")
     bt = sub.add_parser("backtest")
@@ -108,6 +115,8 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config(ROOT, os.environ)
     if args.command == "refresh":
         return cmd_refresh(cfg)
+    if args.command == "run":
+        return cmd_run()
     if args.command == "export":
         return cmd_export(cfg, args.out)
     return cmd_backtest(cfg, args.tune_seasons, args.eval_seasons, week_range(args.weeks), args.quick)
