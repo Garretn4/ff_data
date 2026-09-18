@@ -53,12 +53,12 @@ def _prev_curve(con: duckdb.DuckDBPyConnection, ctx: LeagueContext) -> pl.DataFr
     return rank_to_ppg_curve(seasonal, ctx.season - 1)
 
 
-def _universe(players: pl.DataFrame, ctx: LeagueContext, consensus_ids: set[str]) -> pl.DataFrame:
-    rostered = {p for r in ctx.rosters for p in r.players}
+def _universe(players: pl.DataFrame) -> pl.DataFrame:
     skill = players.filter(pl.col("position").is_in(SKILL_POSITIONS) & pl.col("gsis_id").is_not_null())
-    kd = players.filter(pl.col("position").is_in(["K", "DEF"]) & (
-        pl.col("sleeper_id").is_in(list(rostered)) | pl.col("sleeper_id").is_in(list(consensus_ids))
-    ))
+    kd = players.filter(
+        (pl.col("position") == "DEF")
+        | ((pl.col("position") == "K") & pl.col("nfl_team").is_not_null())
+    )
     return pl.concat([skill, kd]).unique(subset=["sleeper_id"])
 
 
@@ -139,8 +139,7 @@ def project(con: duckdb.DuckDBPyConnection, store: Store, ctx: LeagueContext, so
     hub = _hub(con)
     curve = _prev_curve(con, ctx)
     cons = _consensus_ppg(con, ctx, hub, curve)
-    cons_sleeper = cons.join(hub.select("gsis_id", "sleeper_id"), on="gsis_id", how="left")
-    universe = _universe(players, ctx, set(cons_sleeper["sleeper_id"].drop_nulls().to_list()))
+    universe = _universe(players)
     skill_ppg = cons.select("gsis_id", "ppg") if source == "consensus" else _model_ppg(con, ctx, hub, curve, params).select("gsis_id", "ppg")
     cons_ppg = cons.select("gsis_id", pl.col("ppg").alias("cons_ppg"))
     kd = _kd_from_sleeper(store, ctx, players)

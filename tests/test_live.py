@@ -1,6 +1,17 @@
 import polars as pl
 
-from app.model.live import _apply_weeks, ros_totals
+from app.model.live import _apply_weeks, _universe, ros_totals
+
+
+def test_universe_includes_all_def_and_active_kickers() -> None:
+    players = pl.DataFrame({
+        "sleeper_id": ["p1", "p2", "def1", "def2", "k1", "k2"],
+        "position": ["WR", "RB", "DEF", "DEF", "K", "K"],
+        "nfl_team": ["DET", "SF", "SEA", "KC", "DAL", None],
+        "gsis_id": ["g1", None, None, None, "gk1", "gk2"],
+    })
+    universe = _universe(players)
+    assert set(universe["sleeper_id"].to_list()) == {"p1", "def1", "def2", "k1"}
 
 
 def test_apply_weeks_uses_now_then_ros_and_byes() -> None:
