@@ -82,20 +82,25 @@ def test_apply_settings_saves_and_returns_the_top_scope(tmp_path: Path, monkeypa
     calls: list[str] = []
     monkeypatch.setattr(state, "load", lambda: calls.append("load"))
     monkeypatch.setattr(state, "_recompute_model", lambda: calls.append("model"))
+    monkeypatch.setattr(state, "_rebuild_values", lambda: calls.append("values"))
 
     assert state.apply_settings(replace(state.cfg, source_default="consensus")) == "source"
-    assert state.source == "consensus" and calls == []
+    assert state.source == "consensus" and calls == ["values"]
     assert load_config(tmp_path, env={}).source_default == "consensus"
 
     assert state.apply_settings(replace(state.cfg, blend_k=9.0)) == "model"
-    assert calls == ["model"]
+    assert calls == ["values", "model"]
 
     assert state.apply_settings(replace(state.cfg, blend_b=0.9, stats_from=2010)) == "history"
-    assert calls == ["model", "model"]
+    assert calls == ["values", "model", "model"]
 
     assert state.apply_settings(replace(state.cfg, league_id="42", blend_a=0.2)) == "league"
-    assert calls == ["model", "model", "load"]   # load recomputes projections, so no extra model call
+    assert calls == ["values", "model", "model", "load"]   # load recomputes projections, so no extra model call
     assert state.cfg.league_id == "42"
 
     assert state.apply_settings(state.cfg) == "none"
     assert SCOPE_ORDER == ("league", "history", "model", "source")
+
+
+def test_apply_settings_source_only_with_no_ctx(tmp_path: Path) -> None:
+    assert AppState(cfg=replace(_cfg("ann"), root=tmp_path)).apply_settings(replace(_cfg("ann"), root=tmp_path, source_default="consensus")) == "source"

@@ -56,7 +56,7 @@ class AppState:
         store, con = self._connect()
         self.ctx = load_league_context(store, self.cfg.league_id)
         self.projections = {source: project(con, store, self.ctx, source, params=self.cfg.blend) for source in SOURCES}
-        self.values = player_values(self.ctx, con, store, self.primary(), self.secondary())
+        self._rebuild_values()
         self.matchups = load_matchups(store, self.cfg.league_id, list(range(1, self.ctx.playoff_week_start)))
         self.last_refresh = self._league_refreshed_at()
 
@@ -101,13 +101,20 @@ class AppState:
                     return roster.roster_id
         return self.ctx.rosters[0].roster_id
 
+    def _rebuild_values(self) -> None:
+        """Recompute the value table against the current primary and secondary projections."""
+        if self.ctx is None:
+            return
+        store, con = self._connect()
+        self.values = player_values(self.ctx, con, store, self.primary(), self.secondary())
+
     def _recompute_model(self) -> None:
         """Re-run only the model projection with the current blend weights, then rebuild values."""
         if self.ctx is None:
             return
         store, con = self._connect()
         self.projections["model"] = project(con, store, self.ctx, "model", params=self.cfg.blend)
-        self.values = player_values(self.ctx, con, store, self.primary(), self.secondary())
+        self._rebuild_values()
 
     def apply_settings(self, new: Config) -> str:
         """Save new config, apply it by scope, and return the most significant scope (or "none")."""
@@ -120,6 +127,8 @@ class AppState:
             self.load()
         elif "model" in scopes:
             self._recompute_model()
+        elif "source" in scopes:
+            self._rebuild_values()
         return next((scope for scope in SCOPE_ORDER if scope in scopes), "none")
 
 
