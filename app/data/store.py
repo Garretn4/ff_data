@@ -37,7 +37,9 @@ CREATE INDEX IF NOT EXISTS ix_snapshots_source_time ON market_snapshots (source,
 class Store:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(path)
+        # AppState shares this connection across `run.io_bound` calls, which each run on a
+        # different worker thread; the store is never touched by two threads concurrently.
+        self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.executescript(_SCHEMA)
 
     def get_cached(self, key: str, max_age_s: float | None, now: float) -> str | None:
