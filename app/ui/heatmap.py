@@ -34,9 +34,9 @@ def heatmap_page() -> None:
                 if len(pos_data) > 0:
                     points = round(pos_data["points"][0], 1)
                     median = round(pos_data["median"][0], 1)
-                    surplus = round(pos_data["surplus"][0], 1)
+                    surplus_val = round(pos_data["surplus"][0], 1)
                     heatmap_data.append({
-                        "value": [x_idx, y_idx, surplus],
+                        "value": [x_idx, y_idx, surplus_val],
                         "team": html.escape(team),
                         "pos": html.escape(pos),
                         "points": points,
@@ -44,7 +44,7 @@ def heatmap_page() -> None:
                     })
 
         options = {
-            **echart_base,
+            **echart_base(),
             "title": {"text": "", "left": "center"},
             "tooltip": {
                 "position": "top",
