@@ -10,7 +10,6 @@ import polars as pl
 
 from app.data.identity import id_hub
 from app.data.scoring import score_weeks
-from app.data.store import Store
 from app.market import consensus_snapshot
 from app.model.agecurve import season_ppg
 from app.model.league import LeagueContext
@@ -59,7 +58,7 @@ def collect_transactions(client: TransactionClient, chain: list[dict[str, Any]],
     return pl.DataFrame(rows, schema=schema)
 
 
-def _trade_flows(adds: dict[str, int], positions: dict[str, str]) -> dict[int, dict[str, list[str]]]:
+def _trade_flows(adds: dict[str, int]) -> dict[int, dict[str, list[str]]]:
     flows: dict[int, dict[str, list[str]]] = {}
     for player, to_roster in adds.items():
         flows.setdefault(to_roster, {"acquired": [], "given": []})["acquired"].append(player)
@@ -120,7 +119,7 @@ def _process_trade(
 ) -> None:
     season = int(row["season"])
     adds = dict(zip(row["add_player"], row["add_roster"]))
-    flows = _trade_flows(adds, positions)
+    flows = _trade_flows(adds)
     values = _rank_values(con, season, int(row["week"]), scoring, hub, curve_cache)
     owners_in = {r: owners.get((season, r), "") for r in flows}
     for roster, flow in flows.items():
@@ -134,18 +133,27 @@ def _process_trade(
         b["overpay"] += _overpay(flow, values)
 
 
+def _receiving_roster(row: dict[str, Any]) -> int | None:
+    roster_ids = row.get("roster_ids") or []
+    if roster_ids:
+        return int(roster_ids[0])
+    add_roster = row.get("add_roster") or []
+    return int(add_roster[0]) if add_roster else None
+
+
 def _process_waiver(
     row: dict[str, Any], positions: dict[str, str], owners: dict[tuple[int, int], str],
     bucket: Callable[[str], Bucket],
 ) -> None:
     season = int(row["season"])
     for player, roster in zip(row["add_player"], row["add_roster"]):
-        b = bucket(owners.get((season, int(roster)), ""))
-        b["adds"][positions.get(player, "?")] += 1
-        b["faab"] += int(row["waiver_bid"] or 0)
+        bucket(owners.get((season, int(roster)), ""))["adds"][positions.get(player, "?")] += 1
+    receiving = _receiving_roster(row)
+    if receiving is not None:
+        bucket(owners.get((season, receiving), ""))["faab"] += int(row["waiver_bid"] or 0)
 
 
-def profiles(ctx: LeagueContext, client: Any, con: duckdb.DuckDBPyConnection, store: Store) -> list[ManagerProfile]:
+def profiles(ctx: LeagueContext, client: Any, con: duckdb.DuckDBPyConnection) -> list[ManagerProfile]:
     chain = league_chain(client, ctx.league_id)
     tx = collect_transactions(client, chain, SEASON_WEEKS)
     owners = _owner_maps(chain, client)
