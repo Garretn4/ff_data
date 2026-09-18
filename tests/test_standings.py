@@ -1,13 +1,18 @@
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 
 import duckdb
+import polars as pl
 
 from app.data.store import Store
+from app.model.league import LeagueContext, Roster
+from app.model.live import Projection
 from app.model.standings import (
-    EASTERN, Pairing, Record, SIGMA, actual_lineup, actual_points, blended_total, kickoffs, live_sigma,
-    load_matchups, player_points, records, schedule,
+    EASTERN, PROJECTION_WEIGHT, Pairing, Record, SIGMA, actual_lineup, actual_points, blended_total, kickoffs,
+    league_rows, lineup_for, live_sigma, load_matchups, player_points, power_scores, records, ros_averages,
+    schedule, team_week_projections, week_totals, win_probability,
 )
 
 
@@ -81,18 +86,6 @@ def test_player_points_by_roster() -> None:
     assert player_points(matchups, 2, 1) == {"a1": 24.0, "a2": 0.0}
     assert player_points(matchups, 2, 7) == {}
     assert player_points(matchups, 5, 1) == {}
-
-
-import math
-
-import polars as pl
-
-from app.model.league import LeagueContext, Roster
-from app.model.live import Projection
-from app.model.standings import (
-    PROJECTION_WEIGHT, league_rows, lineup_for, power_scores, ros_averages, team_week_projections, week_totals,
-    win_probability,
-)
 
 
 def ctx_with(rosters: tuple[Roster, ...], slots: list[str]) -> LeagueContext:

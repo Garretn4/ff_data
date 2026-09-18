@@ -7,7 +7,6 @@ from typing import Iterator
 from nicegui import app, run, ui
 
 from app.model.live import SOURCES
-from app.model.values import player_values
 from app.ui.state import AppState, friendly_error, get_state
 from app.ui.theme import BORDER, NEGATIVE, TEXT
 
@@ -33,7 +32,7 @@ def _on_source_change(value: str) -> None:
     state = get_state()
     try:
         state.source = value
-        state.values = player_values(state.ctx, state.con, state.store, state.primary(), state.secondary())
+        state._rebuild_values()
     except Exception as exc:  # UI boundary: caught, recorded, and surfaced, never swallowed
         state.error = str(exc)
         ui.notify(f"Could not switch source: {exc}", type="negative")

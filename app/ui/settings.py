@@ -5,7 +5,7 @@ import os
 
 from nicegui import run, ui
 
-from app.config import SAVED_KEYS, SOURCES, config_from_form, validate_settings
+from app.config import CONFIG_FILE, SAVED_KEYS, SOURCES, config_from_form, validate_settings
 from app.ui.layout import frame, on_refresh
 from app.ui.state import get_state
 from app.ui.theme import MUTED, NEGATIVE, POSITIVE
@@ -93,4 +93,4 @@ def settings_page() -> None:
                 ui.label("New history range is saved but not loaded.").style(f"color:{MUTED}")
                 ui.button("Refresh now", on_click=on_refresh).props(f"color={POSITIVE}")
 
-        ui.label(f"Config file: {state.cfg.root / 'config.local.toml'}").classes("ff-label")
+        ui.label(f"Config file: {state.cfg.root / CONFIG_FILE}").classes("ff-label")
