@@ -60,3 +60,90 @@ def test_schedule_skips_rows_without_a_matchup_id() -> None:
 def test_actual_points_by_roster() -> None:
     assert actual_points(MATCHUPS, 1) == {1: 100.0, 2: 90.0, 3: 80.0, 4: 80.0}
     assert actual_points(MATCHUPS, 9) == {}
+
+
+import math
+
+import polars as pl
+
+from app.model.league import LeagueContext, Roster
+from app.model.live import Projection
+from app.model.standings import (
+    PROJECTION_WEIGHT, lineup_for, power_scores, ros_averages, team_week_projections, week_totals, win_probability,
+)
+
+
+def ctx_with(rosters: tuple[Roster, ...], slots: list[str]) -> LeagueContext:
+    return LeagueContext(league_id="1", name="t", season=2026, week=3, n_teams=len(rosters), scoring={},
+                         roster_positions=slots + ["BN"], slots=slots, playoff_week_start=15, last_week=17,
+                         trade_deadline=99, rosters=rosters)
+
+
+def weekly(points: dict[str, tuple[str, float]], weeks: list[int]) -> pl.DataFrame:
+    """{sleeper_id: (position, points)} repeated for each week."""
+    rows = [(pid, pos, w, pts) for w in weeks for pid, (pos, pts) in points.items()]
+    return pl.DataFrame(rows, schema={"sleeper_id": pl.Utf8, "position": pl.Utf8, "week": pl.Int64,
+                                      "points": pl.Float64}, orient="row")
+
+
+A = Roster(1, "u1", "A", "A", None, ("a1", "a2", "a3"), (), ())
+B = Roster(2, "u2", "B", "B", None, ("b1", "b2"), (), ())
+POINTS = {"a1": ("RB", 20.0), "a2": ("RB", 10.0), "a3": ("WR", 9.0), "b1": ("RB", 25.0), "b2": ("WR", 5.0)}
+
+
+def test_team_week_projections_use_the_optimal_lineup_per_week() -> None:
+    ctx = ctx_with((A, B), ["RB", "FLEX"])
+    proj = Projection("model", weekly(POINTS, [3, 4]), pl.DataFrame())
+    frame = team_week_projections(ctx, proj)
+    assert frame.schema == {"roster_id": pl.Int64, "week": pl.Int64, "points": pl.Float64}
+    got = {(r, w): p for r, w, p in frame.iter_rows()}
+    assert got == {(1, 3): 30.0, (1, 4): 30.0, (2, 3): 30.0, (2, 4): 30.0}
+
+
+def test_team_week_projections_handles_a_roster_with_no_projected_players() -> None:
+    ghost = Roster(3, "u3", "C", "C", None, ("nobody",), (), ())
+    ctx = ctx_with((A, ghost), ["RB"])
+    frame = team_week_projections(ctx, Projection("model", weekly(POINTS, [3]), pl.DataFrame()))
+    assert frame.filter(pl.col("roster_id") == 3).is_empty()
+    assert ros_averages(frame) == {1: 20.0}
+
+
+def test_ros_averages_and_week_totals() -> None:
+    frame = pl.DataFrame({"roster_id": [1, 1, 2], "week": [3, 4, 3], "points": [10.0, 20.0, 7.0]})
+    assert ros_averages(frame) == {1: 15.0, 2: 7.0}
+    assert week_totals(frame, 3) == {1: 10.0, 2: 7.0}
+    assert week_totals(frame, 4) == {1: 20.0}
+    assert ros_averages(pl.DataFrame(schema={"roster_id": pl.Int64, "week": pl.Int64, "points": pl.Float64})) == {}
+
+
+def test_power_scores_use_projection_only_before_any_games() -> None:
+    scores = power_scores({}, {1: 100.0, 2: 80.0, 3: 90.0})
+    assert scores[1] > scores[3] > scores[2]
+    assert math.isclose(sum(scores.values()), 0.0, abs_tol=1e-9)
+
+
+def test_power_scores_blend_projection_with_points_per_game() -> None:
+    recs = {1: Record(1, 1, 0, 0, 100.0, 50.0), 2: Record(2, 0, 1, 0, 50.0, 100.0)}
+    ros = {1: 80.0, 2: 90.0}
+    scores = power_scores(recs, ros)
+    # z(ros) = (-1, +1); z(pf) = (+1, -1) -> 0.6*(-1) + 0.4*(+1) = -0.2 for roster 1
+    assert math.isclose(scores[1], PROJECTION_WEIGHT * -1 + (1 - PROJECTION_WEIGHT) * 1)
+    assert math.isclose(scores[2], -scores[1])
+
+
+def test_power_scores_constant_column_is_zero() -> None:
+    assert power_scores({}, {1: 50.0, 2: 50.0}) == {1: 0.0, 2: 0.0}
+
+
+def test_lineup_for_returns_slots_in_order_with_empty_slots() -> None:
+    ctx = ctx_with((A, B), ["RB", "WR", "FLEX", "TE"])
+    proj = Projection("model", weekly(POINTS, [3]), pl.DataFrame())
+    assert lineup_for(ctx, proj, A, 3) == [("RB", "a1", 20.0), ("WR", "a3", 9.0), ("FLEX", "a2", 10.0), ("TE", "", 0.0)]
+    assert lineup_for(ctx, proj, A, 9) == [("RB", "", 0.0), ("WR", "", 0.0), ("FLEX", "", 0.0), ("TE", "", 0.0)]
+
+
+def test_win_probability_is_symmetric_and_monotone() -> None:
+    assert win_probability(100.0, 100.0) == 0.5
+    assert math.isclose(win_probability(110.0, 100.0) + win_probability(100.0, 110.0), 1.0)
+    assert win_probability(120.0, 100.0) > win_probability(110.0, 100.0) > 0.5
+    assert 0.63 < win_probability(110.0, 100.0) < 0.65   # 10 / (20 * sqrt 2) = 0.354 sd -> 0.638

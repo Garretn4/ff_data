@@ -2,12 +2,24 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
+from statistics import mean, pstdev
 from typing import Any
 
+import polars as pl
+
 from app.data.store import Store
+from app.model.league import LeagueContext, Roster
+from app.model.lineup import optimal_lineup, weekly_strength
+from app.model.live import Projection
 
 Matchups = dict[int, list[dict[str, Any]]]
+
+SIGMA = 20.0             # assumed std dev of one team's weekly score
+PROJECTION_WEIGHT = 0.6  # share of the power score from projected strength
+TEAM_WEEKS_SCHEMA = {"roster_id": pl.Int64, "week": pl.Int64, "points": pl.Float64}
+Slot = tuple[str, str, float]
 
 
 @dataclass(frozen=True)
@@ -97,3 +109,67 @@ def schedule(matchups: Matchups, week: int) -> list[Pairing]:
 
 def actual_points(matchups: Matchups, week: int) -> dict[int, float]:
     return {int(row["roster_id"]): _points(row) for row in matchups.get(week, [])}
+
+
+def team_week_projections(ctx: LeagueContext, proj: Projection) -> pl.DataFrame:
+    """Optimal-lineup projected points per roster per remaining week."""
+    frames = [
+        weekly_strength(ctx.slots, proj.weekly, set(roster.players))
+        .with_columns(pl.lit(roster.roster_id, dtype=pl.Int64).alias("roster_id"))
+        .select("roster_id", "week", "points")
+        for roster in ctx.rosters
+    ]
+    if not frames:
+        return pl.DataFrame(schema=TEAM_WEEKS_SCHEMA)
+    return pl.concat(frames).cast(TEAM_WEEKS_SCHEMA)
+
+
+def _by_roster(frame: pl.DataFrame, column: str) -> dict[int, float]:
+    return {int(r): float(v) for r, v in zip(frame["roster_id"].to_list(), frame[column].to_list())}
+
+
+def ros_averages(team_weeks: pl.DataFrame) -> dict[int, float]:
+    if team_weeks.is_empty():
+        return {}
+    return _by_roster(team_weeks.group_by("roster_id").agg(pl.col("points").mean().alias("avg")), "avg")
+
+
+def week_totals(team_weeks: pl.DataFrame, week: int) -> dict[int, float]:
+    return _by_roster(team_weeks.filter(pl.col("week") == week), "points")
+
+
+def _zscores(values: dict[int, float]) -> dict[int, float]:
+    if not values:
+        return {}
+    mu, sd = mean(values.values()), pstdev(values.values())
+    if sd == 0.0:
+        return {rid: 0.0 for rid in values}
+    return {rid: (v - mu) / sd for rid, v in values.items()}
+
+
+def power_scores(records: dict[int, Record], ros_avg: dict[int, float]) -> dict[int, float]:
+    """0.6 z(projected points per week) + 0.4 z(points for per game); projection only before any games."""
+    z_proj = _zscores(ros_avg)
+    per_game = {rid: rec.points_for / rec.games for rid, rec in records.items() if rec.games > 0}
+    if not per_game:
+        return z_proj
+    z_pf = _zscores(per_game)
+    return {
+        rid: PROJECTION_WEIGHT * z_proj.get(rid, 0.0) + (1.0 - PROJECTION_WEIGHT) * z_pf.get(rid, 0.0)
+        for rid in ros_avg
+    }
+
+
+def lineup_for(ctx: LeagueContext, proj: Projection, roster: Roster, week: int) -> list[Slot]:
+    """(slot, sleeper_id, points) in slot order for the roster's optimal lineup that week; "" when unfilled."""
+    rows = proj.weekly.filter((pl.col("week") == week) & pl.col("sleeper_id").is_in(list(roster.players)))
+    players = list(zip(rows["sleeper_id"].to_list(), rows["position"].to_list(), rows["points"].to_list()))
+    _, assignment = optimal_lineup(ctx.slots, players)
+    points = {pid: float(pts) for pid, _, pts in players}
+    return [(slot, assignment.get(str(i), ""), points.get(assignment.get(str(i), ""), 0.0))
+            for i, slot in enumerate(ctx.slots)]
+
+
+def win_probability(points_a: float, points_b: float) -> float:
+    """P(a beats b) when each side's score has std dev SIGMA: Phi(diff / (SIGMA * sqrt 2))."""
+    return 0.5 * (1.0 + math.erf((points_a - points_b) / (2.0 * SIGMA)))
