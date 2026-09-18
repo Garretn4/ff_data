@@ -37,3 +37,14 @@ def test_load_config_ff_root_overrides_the_root(tmp_path: Path) -> None:
     assert cfg.cache_dir == other_root / "cache"
     assert cfg.duckdb_path == other_root / "cache" / "stats.duckdb"
     assert cfg.sqlite_path == other_root / "cache" / "app.sqlite"
+
+
+def test_load_config_reads_username_from_toml(tmp_path: Path) -> None:
+    (tmp_path / "config.local.toml").write_text('username = "garretn4"\n')
+    cfg = load_config(tmp_path, env={})
+    assert cfg.username == "garretn4"
+
+
+def test_load_config_username_defaults_to_empty(tmp_path: Path) -> None:
+    cfg = load_config(tmp_path, env={})
+    assert cfg.username == ""

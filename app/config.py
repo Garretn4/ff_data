@@ -23,6 +23,7 @@ class Config:
     stats_from: int
     detail_from: int
     current_season: int
+    username: str = ""
 
     @property
     def cache_dir(self) -> Path:
@@ -57,6 +58,7 @@ def load_config(root: Path, env: Mapping[str, str], today: date | None = None) -
     root = Path(env["FF_ROOT"]) if env.get("FF_ROOT") else root
     data = _read_toml(root / "config.local.toml")
     league_id = str(env.get("FF_LEAGUE_ID") or data.get("league_id", ""))
+    username = str(data.get("username", ""))
     season = current_nfl_season(today or date.today())
     return Config(
         league_id=league_id,
@@ -64,4 +66,5 @@ def load_config(root: Path, env: Mapping[str, str], today: date | None = None) -
         stats_from=int(data.get("stats_from", STATS_FROM)),
         detail_from=int(data.get("detail_from", DETAIL_FROM)),
         current_season=season,
+        username=username,
     )

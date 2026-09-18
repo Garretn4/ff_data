@@ -84,6 +84,16 @@ class AppState:
         row = con.execute("SELECT refreshed_at FROM league_meta ORDER BY refreshed_at DESC LIMIT 1").fetchone()
         return datetime.fromisoformat(row[0]) if row else None
 
+    def my_roster_id(self) -> int:
+        """Return the roster whose display_name equals cfg.username (case-insensitive), else the first roster's id."""
+        if self.ctx is None or not self.ctx.rosters:
+            return 1
+        if self.cfg.username:
+            for roster in self.ctx.rosters:
+                if roster.display_name.lower() == self.cfg.username.lower():
+                    return roster.roster_id
+        return self.ctx.rosters[0].roster_id
+
 
 def startup_plan(has_cache: bool, stale: bool) -> tuple[bool, bool]:
     """(load_now, refresh_in_background) for the startup sequence.

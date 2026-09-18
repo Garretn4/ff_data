@@ -50,17 +50,21 @@ def _deal_card(lookup: dict[str, str], me: int, deal: Deal) -> None:
         ui.link("Open in trade screen", _trade_link(me, opp_roster_id, give, get)).classes("ff-label")
 
 
+def _find_opponent_deals(ctx: LeagueContext, proj: Projection, values: pl.DataFrame, me: int, opp_id: int) -> list[Deal]:
+    return [(opp_id, result, give, get) for result, give, get in find_trades(ctx, proj, values, me, opp_id)]
+
+
 def search_deals(ctx: LeagueContext, proj: Projection, values: pl.DataFrame, me: int, opp: int) -> list[Deal]:
     opponents = [r.roster_id for r in ctx.rosters if r.roster_id != me] if opp == ALL_OPPONENTS else [opp]
     deals: list[Deal] = []
     for opp_id in opponents:
-        deals.extend((opp_id, result, give, get) for result, give, get in find_trades(ctx, proj, values, me, opp_id))
+        deals.extend(_find_opponent_deals(ctx, proj, values, me, opp_id))
     deals.sort(key=lambda deal: min(deal[1].delta_a, deal[1].delta_b), reverse=True)
     return deals[:10]
 
 
 @ui.page("/finder")
-def finder_page(me: int = 1, opp: int = ALL_OPPONENTS) -> None:
+def finder_page(me: int = 0, opp: int = ALL_OPPONENTS) -> None:
     with frame("Finder"):
         state = get_state()
         if not ensure_loaded(state):
@@ -70,7 +74,7 @@ def finder_page(me: int = 1, opp: int = ALL_OPPONENTS) -> None:
         values = state.values
         lookup = _name_lookup(values)
 
-        picked = {"me": me, "opp": opp}
+        picked = {"me": me or state.my_roster_id(), "opp": opp}
         results: list[Deal] = []
 
         @ui.refreshable

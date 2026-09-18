@@ -1,9 +1,7 @@
 """Trade screen: pick players from two rosters and see the live lineup-strength delta."""
 from __future__ import annotations
 
-import tomllib
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Callable
 
 import polars as pl
@@ -26,29 +24,6 @@ class _Side:
 
 def _split_ids(raw: str) -> set[str]:
     return {p for p in raw.split(",") if p}
-
-
-def _read_username(root: Path) -> str | None:
-    path = root / "config.local.toml"
-    if not path.exists():
-        return None
-    with path.open("rb") as fh:
-        data = tomllib.load(fh)
-    username = data.get("username")
-    return str(username) if username else None
-
-
-def _resolve_me(ctx: LeagueContext, root: Path, me: int) -> int:
-    """The `me` param wins when it differs from the bare default; otherwise try the configured username."""
-    if me != 1:
-        return me
-    username = _read_username(root)
-    if username is None:
-        return 1
-    for roster in ctx.rosters:
-        if roster.display_name.lower() == username.lower():
-            return roster.roster_id
-    return 1
 
 
 def _roster_by_id(ctx: LeagueContext, roster_id: int) -> Roster:
@@ -98,7 +73,7 @@ def _delta_block(label: str, delta: float, before: float, after: float) -> None:
 
 
 @ui.page("/trade")
-def trade_page(me: int = 1, opp: int = 2, give: str = "", get: str = "") -> None:
+def trade_page(me: int = 0, opp: int = 2, give: str = "", get: str = "") -> None:
     with frame("Trade"):
         state = get_state()
         if not ensure_loaded(state):
@@ -108,7 +83,7 @@ def trade_page(me: int = 1, opp: int = 2, give: str = "", get: str = "") -> None
         values = state.values
         index = index_weekly(proj.weekly)
 
-        side_a = _Side(roster_id=_resolve_me(ctx, state.cfg.root, me), given=_split_ids(give))
+        side_a = _Side(roster_id=me or state.my_roster_id(), given=_split_ids(give))
         side_b = _Side(roster_id=opp, given=_split_ids(get))
 
         @ui.refreshable
