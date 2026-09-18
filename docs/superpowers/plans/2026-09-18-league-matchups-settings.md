@@ -1527,9 +1527,226 @@ Run: `uv run python -m app run` and confirm the native window opens and the Leag
 
 ---
 
+### Task 10: Live win probability from real points
+
+Added 2026-09-18 after the user asked that the current week's win probability move with real points.
+
+**Files:**
+- Modify: `app/model/standings.py`
+- Modify: `app/ui/matchups.py`
+- Test: `tests/test_standings.py`
+
+**Interfaces:**
+- Consumes: DuckDB `schedules` table (`season, week, game_type, gameday: date, gametime: "HH:MM" Eastern, home_team, away_team`); `Slot = (slot, sleeper_id, points)`; `player_points`; `lineup_for`; `state.values` columns `sleeper_id`, `nfl_team`; `state.con`.
+- Produces:
+  - `EASTERN = ZoneInfo("America/New_York")`
+  - `kickoffs(con, season, week) -> dict[str, datetime]` NFL team → tz-aware kickoff
+  - `blended_total(lineup, live, teams, kicks, now) -> tuple[float, int]` (points, starters still to play)
+  - `live_sigma(remaining_a, remaining_b, n_slots) -> float`
+  - `win_probability(points_a, points_b, sigma: float = SIGMA) -> float` (existing, gains `sigma`)
+  - `WeekView.current: bool` and `WeekView.blended: dict[int, tuple[float, int]]`
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `tests/test_standings.py` (merge the new standings names into the top import block; add `from datetime import datetime` and `import duckdb` at the top):
+
+```python
+from app.model.standings import EASTERN, SIGMA, blended_total, kickoffs, live_sigma
+
+
+def _schedule_con() -> duckdb.DuckDBPyConnection:
+    con = duckdb.connect()
+    con.execute("CREATE TABLE schedules (season INT, week INT, game_type VARCHAR, gameday DATE, gametime VARCHAR, "
+                "home_team VARCHAR, away_team VARCHAR)")
+    con.execute("INSERT INTO schedules VALUES (2026, 2, 'REG', DATE '2026-09-17', '20:15', 'DET', 'BUF'), "
+                "(2026, 2, 'REG', DATE '2026-09-20', '13:00', 'ATL', 'CAR'), "
+                "(2026, 2, 'REG', DATE '2026-09-20', NULL, 'NYJ', 'MIA'), "
+                "(2026, 3, 'REG', DATE '2026-09-24', '20:15', 'KC', 'LAC')")
+    return con
+
+
+def test_kickoffs_map_both_teams_to_an_eastern_datetime() -> None:
+    kicks = kickoffs(_schedule_con(), 2026, 2)
+    assert kicks["BUF"] == kicks["DET"] == datetime(2026, 9, 17, 20, 15, tzinfo=EASTERN)
+    assert kicks["NYJ"] == datetime(2026, 9, 20, 13, 0, tzinfo=EASTERN)   # missing time defaults to 13:00
+    assert "KC" not in kicks
+
+
+def test_blended_total_uses_live_points_once_a_game_has_kicked_off() -> None:
+    lineup = [("QB", "allen", 24.5), ("RB", "bijan", 18.0), ("WR", "", 0.0), ("TE", "kelce", 9.0)]
+    live = {"allen": 40.8, "bijan": 0.0, "kelce": 0.0}
+    teams = {"allen": "BUF", "bijan": "ATL", "kelce": "KC"}
+    kicks = {"BUF": datetime(2026, 9, 17, 20, 15, tzinfo=EASTERN), "ATL": datetime(2026, 9, 20, 13, 0, tzinfo=EASTERN)}
+    now = datetime(2026, 9, 18, 12, 0, tzinfo=EASTERN)
+    assert blended_total(lineup, live, teams, kicks, now) == (40.8 + 18.0 + 9.0, 2)
+    later = datetime(2026, 9, 20, 16, 0, tzinfo=EASTERN)
+    assert blended_total(lineup, live, teams, kicks, later) == (40.8 + 0.0 + 9.0, 1)
+
+
+def test_live_sigma_shrinks_with_starters_left() -> None:
+    assert live_sigma(10, 10, 10) == SIGMA
+    assert math.isclose(live_sigma(5, 5, 10), SIGMA * math.sqrt(0.5))
+    assert 0.0 < live_sigma(0, 0, 10) < 1.0
+    assert live_sigma(0, 0, 0) == SIGMA
+
+
+def test_win_probability_accepts_a_custom_sigma() -> None:
+    assert win_probability(110.0, 100.0, sigma=SIGMA) == win_probability(110.0, 100.0)
+    assert win_probability(110.0, 100.0, sigma=1.0) > 0.999
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `uv run pytest tests/test_standings.py -q`
+Expected: ImportError on `EASTERN`.
+
+- [ ] **Step 3: Implement in `app/model/standings.py`**
+
+Add imports `from datetime import datetime` and `from zoneinfo import ZoneInfo`, plus `import duckdb`. Add constants after `SIGMA`:
+
+```python
+EASTERN = ZoneInfo("America/New_York")
+DEFAULT_KICKOFF = "13:00"
+MIN_SIGMA = 0.5   # all starters done: the result is decided, keep erf finite
+```
+
+Add functions after `win_probability` and change its signature:
+
+```python
+def win_probability(points_a: float, points_b: float, sigma: float = SIGMA) -> float:
+    """P(a beats b) when each side's score has std dev sigma: Phi(diff / (sigma * sqrt 2))."""
+    return 0.5 * (1.0 + math.erf((points_a - points_b) / (2.0 * sigma)))
+
+
+def kickoffs(con: duckdb.DuckDBPyConnection, season: int, week: int) -> dict[str, datetime]:
+    """NFL team -> kickoff (Eastern) for one regular-season week, from the nflverse schedule."""
+    rows = con.execute(
+        "SELECT home_team, away_team, gameday, gametime FROM schedules "
+        "WHERE season = ? AND week = ? AND game_type = 'REG'", [season, week],
+    ).fetchall()
+    out: dict[str, datetime] = {}
+    for home, away, day, time in rows:
+        hour, minute = (time or DEFAULT_KICKOFF).split(":")
+        when = datetime(day.year, day.month, day.day, int(hour), int(minute), tzinfo=EASTERN)
+        out[str(home)] = when
+        out[str(away)] = when
+    return out
+
+
+def blended_total(lineup: list[Slot], live: dict[str, float], teams: dict[str, str],
+                  kicks: dict[str, datetime], now: datetime) -> tuple[float, int]:
+    """(points, starters still to play): live points once a starter's game has kicked off, projection before."""
+    total, remaining = 0.0, 0
+    for _, pid, projected in lineup:
+        if not pid:
+            continue
+        kickoff = kicks.get(teams.get(pid, ""))
+        if kickoff is not None and kickoff <= now:
+            total += live.get(pid, 0.0)
+        else:
+            total += projected
+            remaining += 1
+    return total, remaining
+
+
+def live_sigma(remaining_a: int, remaining_b: int, n_slots: int) -> float:
+    """Score spread shrinks with the square root of the share of starters still to play."""
+    if n_slots <= 0:
+        return SIGMA
+    share = (remaining_a + remaining_b) / (2.0 * n_slots)
+    return max(SIGMA * math.sqrt(share), MIN_SIGMA)
+```
+
+Run: `uv run pytest tests/test_standings.py -q` → all pass.
+
+- [ ] **Step 4: Wire the page in `app/ui/matchups.py`**
+
+Import `datetime` from `datetime`, and `EASTERN, blended_total, kickoffs, live_sigma` from `app.model.standings`.
+
+`WeekView` gains two fields after `live`:
+
+```python
+    current: bool
+    blended: dict[int, tuple[float, int]]   # roster_id -> (points so far + projected rest, starters left); current week only
+```
+
+In `build_week`, after `live = ...`:
+
+```python
+    current = week == ctx.week
+    blended: dict[int, tuple[float, int]] = {}
+    if current:
+        teams = dict(zip(values["sleeper_id"].to_list(), values["nfl_team"].to_list())) if not values.is_empty() else {}
+        kicks = kickoffs(state.con, ctx.season, week)
+        now = datetime.now(EASTERN)
+        for roster in ctx.rosters:
+            lineup = lineup_for(ctx, state.primary(), roster, week)
+            blended[roster.roster_id] = blended_total(lineup, live.get(roster.roster_id, {}), teams, kicks, now)
+    return WeekView(..., live=live, current=current, blended=blended)
+```
+
+Replace `_score` and `_favourite`:
+
+```python
+def _score(view: WeekView, source: str, roster_id: int) -> float:
+    if view.played:
+        return view.actual.get(roster_id, 0.0)
+    if view.current:
+        return view.blended.get(roster_id, (0.0, 0))[0]
+    return view.totals[source].get(roster_id, 0.0)
+
+
+def _sigma(view: WeekView, ctx: LeagueContext, pairing: Pairing) -> float:
+    if not view.current or pairing.away is None:
+        return SIGMA
+    left_home = view.blended.get(pairing.home, (0.0, len(ctx.slots)))[1]
+    left_away = view.blended.get(pairing.away, (0.0, len(ctx.slots)))[1]
+    return live_sigma(left_home, left_away, len(ctx.slots))
+
+
+def _favourite(view: WeekView, ctx: LeagueContext, source: str, pairing: Pairing) -> tuple[int, float] | None:
+    if pairing.away is None:
+        return None
+    home, away = _score(view, source, pairing.home), _score(view, source, pairing.away)
+    fav = pairing.home if home >= away else pairing.away
+    return fav, win_probability(max(home, away), min(home, away), sigma=_sigma(view, ctx, pairing))
+```
+
+Import `SIGMA` from `app.model.standings`. Update the two `_favourite(...)` call sites to pass `ctx`.
+
+In `_side`, the headline branches become:
+
+```python
+        if view.played:
+            headline = f"{_score(view, source, roster.roster_id):.1f} actual"
+        elif view.current:
+            projected = view.totals[source].get(roster.roster_id, 0.0)
+            headline = f"{_score(view, source, roster.roster_id):.1f} live blend · {projected:.1f} {source}"
+        else:
+            headline = f"{_score(view, source, roster.roster_id):.1f} {source}"
+```
+
+and the per-row live label is gated on `view.current` instead of `not view.played`. In `_compact_row`, the `live {...}` label is gated on `view.current`, and its text becomes `f"live {view.blended.get(rid, (0.0, 0))[0]:.1f}"`. Future weeks therefore show projections only.
+
+- [ ] **Step 5: Launch and check**
+
+Run `FF_NATIVE=0 uv run python -m app run` in the background; open `/matchups`. Confirm: the headline reads "N live blend · M model"; on the side with Josh Allen the blend exceeds the projection by roughly his live minus projected points; the win probability differs from a projection-only run (compare with `/matchups?week=3`, which must show plain "M model" headlines, no live labels, and a probability from projections only). Open `/matchups?week=1`: unchanged. Server log clean; kill the server.
+
+- [ ] **Step 6: Run tests and commit**
+
+Run: `uv run pytest -q` → all pass.
+
+```bash
+git add app/model/standings.py app/ui/matchups.py tests/test_standings.py
+git commit -m "Blend live points into current-week win probability"
+```
+
+---
+
 ## Dependency graph for parallel execution
 
 - Wave 1 (independent): Task 1, Task 2, Task 3.
 - Wave 2: Task 4 (needs 3), Task 5 (needs 1, 3).
 - Wave 3: Task 6 (needs 4, 5), Task 8 (needs 1, 5). Task 7 (needs 4, 5) can run alongside Task 6 but both touch `app/ui/layout.py`; run 6 first or merge carefully.
 - Wave 4: Task 9 (needs everything).
+- Wave 5: Task 10 (needs 7, 9).
