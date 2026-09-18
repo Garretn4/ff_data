@@ -53,7 +53,8 @@ def _read_toml(path: Path) -> dict[str, object]:
 
 
 def load_config(root: Path, env: Mapping[str, str], today: date | None = None) -> Config:
-    """Read config.local.toml under root; FF_LEAGUE_ID in env overrides the file."""
+    """Read config.local.toml under root; FF_ROOT overrides root, FF_LEAGUE_ID overrides the file."""
+    root = Path(env["FF_ROOT"]) if env.get("FF_ROOT") else root
     data = _read_toml(root / "config.local.toml")
     league_id = str(env.get("FF_LEAGUE_ID") or data.get("league_id", ""))
     season = current_nfl_season(today or date.today())

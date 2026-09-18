@@ -25,3 +25,15 @@ def test_load_config_without_file_has_empty_league(tmp_path: Path) -> None:
     assert cfg.league_id == ""
     assert cfg.stats_from == 2012
     assert cfg.detail_from == 2019
+
+
+def test_load_config_ff_root_overrides_the_root(tmp_path: Path) -> None:
+    other_root = tmp_path / "other_root"
+    other_root.mkdir()
+    (other_root / "config.local.toml").write_text('league_id = "333"\n')
+    cfg = load_config(tmp_path, env={"FF_ROOT": str(other_root)})
+    assert cfg.root == other_root
+    assert cfg.league_id == "333"
+    assert cfg.cache_dir == other_root / "cache"
+    assert cfg.duckdb_path == other_root / "cache" / "stats.duckdb"
+    assert cfg.sqlite_path == other_root / "cache" / "app.sqlite"
