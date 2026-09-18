@@ -12,6 +12,7 @@ from app.data.store import Store
 from app.model.replacement import starter_slots
 
 LAST_NFL_WEEK = 17
+NO_TRADE_DEADLINE = 99
 
 
 @dataclass(frozen=True)
@@ -66,8 +67,9 @@ def _rosters(raw: list[dict[str, Any]], users: list[dict[str, Any]]) -> tuple[Ro
         out.append(Roster(
             roster_id=int(r["roster_id"]), owner_id=str(r.get("owner_id") or ""), team_name=str(name),
             display_name=str(user.get("display_name") or ""), avatar=user.get("avatar"),
-            players=tuple(r.get("players") or ()), starters=tuple(r.get("starters") or ()),
-            reserve=tuple(r.get("reserve") or ()),
+            players=tuple(p for p in (r.get("players") or ()) if p),
+            starters=tuple(p for p in (r.get("starters") or ()) if p),
+            reserve=tuple(p for p in (r.get("reserve") or ()) if p),
         ))
     return tuple(sorted(out, key=lambda x: x.roster_id))
 
@@ -86,7 +88,7 @@ def load_league_context(store: Store, league_id: str) -> LeagueContext:
         n_teams=int(league["total_rosters"]), scoring={k: float(v) for k, v in league["scoring_settings"].items()},
         roster_positions=positions, slots=starter_slots(positions),
         playoff_week_start=int(settings.get("playoff_week_start", 15)), last_week=LAST_NFL_WEEK,
-        trade_deadline=int(settings.get("trade_deadline", 99)), rosters=_rosters(rosters, users),
+        trade_deadline=int(settings.get("trade_deadline", NO_TRADE_DEADLINE)), rosters=_rosters(rosters, users),
     )
 
 

@@ -51,6 +51,21 @@ def test_missing_league_raises(tmp_path: Path) -> None:
         raise AssertionError("expected ValueError")
 
 
+def test_roster_filters_none_entries(tmp_path: Path) -> None:
+    store = Store(tmp_path / "app.sqlite")
+    league_with_none = {"league_id": "2", "name": "Test", "season": "2026", "total_rosters": 1,
+                        "scoring_settings": {"rec": 1.0}, "roster_positions": ["QB", "RB", "FLEX", "BN", "IR"],
+                        "settings": {"playoff_week_start": 15, "trade_deadline": 12}}
+    users = [{"user_id": "u1", "display_name": "Alice", "avatar": None, "metadata": {}}]
+    rosters = [{"roster_id": 1, "owner_id": "u1", "players": ["p5", None], "starters": ["p5"], "reserve": None}]
+    store.put_cached("sleeper:/league/2", json.dumps(league_with_none), now=1.0)
+    store.put_cached("sleeper:/league/2/users", json.dumps(users), now=1.0)
+    store.put_cached("sleeper:/league/2/rosters", json.dumps(rosters), now=1.0)
+    store.put_cached("sleeper:/state/nfl", json.dumps({"week": 1, "season": "2026"}), now=1.0)
+    ctx = load_league_context(store, "2")
+    assert ctx.rosters[0].players == ("p5",)
+
+
 def test_team_opponents_and_sleeper_points(tmp_path: Path) -> None:
     con = connect(tmp_path / "s.duckdb")
     replace_table(con, "schedules", pl.DataFrame({
