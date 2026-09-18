@@ -1,7 +1,7 @@
 from datetime import date
 from pathlib import Path
 
-from app.config import Config, SAVED_KEYS, config_from_form, current_nfl_season, load_config, save_config, validate_settings
+from app.config import Config, SAVED_KEYS, config_from_form, current_nfl_season, load_config, save_config, split_names, validate_settings
 
 
 def test_current_nfl_season_rolls_in_september() -> None:
@@ -42,17 +42,17 @@ def test_load_config_ff_root_overrides_the_root(tmp_path: Path) -> None:
 def test_load_config_reads_username_from_toml(tmp_path: Path) -> None:
     (tmp_path / "config.local.toml").write_text('username = "garretn4"\n')
     cfg = load_config(tmp_path, env={})
-    assert cfg.username == "garretn4"
+    assert cfg.usernames == ("garretn4",)
 
 
 def test_load_config_username_defaults_to_empty(tmp_path: Path) -> None:
     cfg = load_config(tmp_path, env={})
-    assert cfg.username == ""
+    assert cfg.usernames == ()
 
 
 def _cfg(root: Path, **over: object) -> Config:
     base = dict(league_id="123", root=root, stats_from=2015, detail_from=2020, current_season=2026,
-                username="ann", source_default="consensus", blend_k=6.0, blend_a=0.4, blend_b=0.7)
+                usernames=("ann",), source_default="consensus", blend_k=6.0, blend_a=0.4, blend_b=0.7)
     base.update(over)
     return Config(**base)  # type: ignore[arg-type]
 
@@ -84,7 +84,7 @@ def test_save_config_drops_unknown_keys(tmp_path: Path) -> None:
 
 
 def _form(**over: object) -> dict[str, object]:
-    form: dict[str, object] = dict(league_id="123", username="ann", source_default="model", stats_from=2015,
+    form: dict[str, object] = dict(league_id="123", usernames="ann", source_default="model", stats_from=2015,
                                    detail_from=2020, blend_k=4.0, blend_a=0.6, blend_b=0.5)
     form.update(over)
     return form
@@ -107,6 +107,37 @@ def test_validate_settings_rejects_missing_numbers() -> None:
 
 def test_config_from_form_keeps_root_and_season(tmp_path: Path) -> None:
     base = _cfg(tmp_path)
-    cfg = config_from_form(_form(league_id=" 777 ", username=" bob ", blend_k="8"), base)
+    cfg = config_from_form(_form(league_id=" 777 ", usernames=" bob ", blend_k="8"), base)
     assert cfg.root == tmp_path and cfg.current_season == 2026
-    assert (cfg.league_id, cfg.username, cfg.blend_k) == ("777", "bob", 8.0)
+    assert (cfg.league_id, cfg.usernames, cfg.blend_k) == ("777", ("bob",), 8.0)
+
+
+def test_split_names_from_string_or_sequence() -> None:
+    assert split_names(" ann , bob,,") == ("ann", "bob")
+    assert split_names(("ann", " bob ")) == ("ann", "bob")
+    assert split_names(None) == () and split_names("") == ()
+
+
+def test_load_config_reads_usernames_array_and_lifts_legacy_username(tmp_path: Path) -> None:
+    (tmp_path / "config.local.toml").write_text('usernames = ["ann", "bob"]\n')
+    assert load_config(tmp_path, env={}).usernames == ("ann", "bob")
+    (tmp_path / "config.local.toml").write_text('username = "solo"\n')
+    assert load_config(tmp_path, env={}).usernames == ("solo",)
+    (tmp_path / "config.local.toml").write_text("league_id = \"1\"\n")
+    assert load_config(tmp_path, env={}).usernames == ()
+
+
+def test_save_config_writes_usernames_as_an_array(tmp_path: Path) -> None:
+    save_config(tmp_path, _cfg(tmp_path, usernames=("ann", "bob")))
+    text = (tmp_path / "config.local.toml").read_text()
+    assert 'usernames = ["ann", "bob"]' in text and "username =" not in text.replace("usernames =", "")
+    assert load_config(tmp_path, env={}).usernames == ("ann", "bob")
+
+
+def test_validate_settings_requires_a_username() -> None:
+    assert "usernames" in validate_settings(_form(usernames=" , "), current_season=2026)
+    assert validate_settings(_form(usernames="ann, bob"), current_season=2026) == {}
+
+
+def test_config_from_form_parses_usernames(tmp_path: Path) -> None:
+    assert config_from_form(_form(usernames="ann, bob"), _cfg(tmp_path)).usernames == ("ann", "bob")

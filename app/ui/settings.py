@@ -19,7 +19,7 @@ MESSAGES = {
 }
 FIELD_HELP = {
     "league_id": "Sleeper league id (digits)",
-    "username": "Your Sleeper display name; picks your roster on Trade, Finder, and Matchups",
+    "usernames": "Sleeper display names, comma-separated; the first one with a roster is you",
     "source_default": "Projection source the app opens with",
     "stats_from": "First season of box-score history to load",
     "detail_from": "First season of play-by-play detail to load",
@@ -34,6 +34,7 @@ def settings_page() -> None:
     with frame("Settings"):
         state = get_state()
         form: dict[str, object] = {key: getattr(state.cfg, key) for key in SAVED_KEYS}
+        form["usernames"] = ", ".join(state.cfg.usernames)
 
         if os.environ.get("FF_LEAGUE_ID"):
             ui.label("FF_LEAGUE_ID is set in the environment and overrides the saved league id on the next start.") \
@@ -55,8 +56,8 @@ def settings_page() -> None:
 
             ui.input("League id", on_change=lambda _: check()).bind_value(form, "league_id").props("dark")
             ui.label(FIELD_HELP["league_id"]).classes("ff-label")
-            ui.input("Username", on_change=lambda _: check()).bind_value(form, "username").props("dark")
-            ui.label(FIELD_HELP["username"]).classes("ff-label")
+            ui.input("Usernames", on_change=lambda _: check()).bind_value(form, "usernames").props("dark")
+            ui.label(FIELD_HELP["usernames"]).classes("ff-label")
             ui.select(list(SOURCES), label="Default source", on_change=lambda _: check()) \
                 .bind_value(form, "source_default").props("dark")
             ui.label(FIELD_HELP["source_default"]).classes("ff-label")

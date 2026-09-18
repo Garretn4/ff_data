@@ -19,7 +19,7 @@ SOURCES = ("consensus", "model")
 MIN_SEASON = 2000
 CONFIG_FILE = "config.local.toml"
 SAVED_KEYS: tuple[str, ...] = (
-    "league_id", "username", "source_default", "stats_from", "detail_from", "blend_k", "blend_a", "blend_b",
+    "league_id", "usernames", "source_default", "stats_from", "detail_from", "blend_k", "blend_a", "blend_b",
 )
 FILE_HEADER = "# Written by the Settings screen. Unknown keys are dropped on the next save.\n"
 
@@ -36,7 +36,7 @@ class Config:
     stats_from: int
     detail_from: int
     current_season: int
-    username: str = ""
+    usernames: tuple[str, ...] = ()
     source_default: str = SOURCE_DEFAULT
     blend_k: float = 4.0
     blend_a: float = 0.6
@@ -69,6 +69,14 @@ class Config:
         return list(range(self.detail_from, self.current_season + 1))
 
 
+def split_names(value: object) -> tuple[str, ...]:
+    """Usernames from a comma-separated string or any sequence; blanks dropped, order kept."""
+    if value is None:
+        return ()
+    parts = value.split(",") if isinstance(value, str) else list(value)  # type: ignore[call-overload]
+    return tuple(p for p in (str(x).strip() for x in parts) if p)
+
+
 def _read_toml(path: Path) -> dict[str, object]:
     if not path.exists():
         return {}
@@ -88,7 +96,7 @@ def load_config(root: Path, env: Mapping[str, str], today: date | None = None) -
         stats_from=int(data.get("stats_from", STATS_FROM)),
         detail_from=int(data.get("detail_from", DETAIL_FROM)),
         current_season=season,
-        username=str(data.get("username", "")),
+        usernames=split_names(data.get("usernames", data.get("username"))),
         source_default=str(data.get("source_default", SOURCE_DEFAULT)),
         blend_k=float(data.get("blend_k", 4.0)),
         blend_a=float(data.get("blend_a", 0.6)),
@@ -97,6 +105,8 @@ def load_config(root: Path, env: Mapping[str, str], today: date | None = None) -
 
 
 def _toml_scalar(value: object) -> str:
+    if isinstance(value, (tuple, list)):
+        return "[" + ", ".join(json.dumps(str(v)) for v in value) + "]"
     return json.dumps(value) if isinstance(value, str) else repr(value)
 
 
@@ -129,6 +139,8 @@ def validate_settings(form: Mapping[str, object], current_season: int) -> dict[s
     errors: dict[str, str] = {}
     if not str(form.get("league_id", "")).strip().isdigit():
         errors["league_id"] = "digits only"
+    if not split_names(form.get("usernames")):
+        errors["usernames"] = "at least one Sleeper username"
     if form.get("source_default") not in SOURCES:
         errors["source_default"] = f"one of {', '.join(SOURCES)}"
     stats_from, detail_from = _as_int(form.get("stats_from")), _as_int(form.get("detail_from"))
@@ -151,7 +163,7 @@ def config_from_form(form: Mapping[str, object], base: Config) -> Config:
     return replace(
         base,
         league_id=str(form["league_id"]).strip(),
-        username=str(form["username"]).strip(),
+        usernames=split_names(form.get("usernames")),
         source_default=str(form["source_default"]),
         stats_from=int(form["stats_from"]),  # type: ignore[call-overload]
         detail_from=int(form["detail_from"]),  # type: ignore[call-overload]

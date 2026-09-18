@@ -42,7 +42,7 @@ def _ctx(rosters: tuple[Roster, ...]) -> LeagueContext:
 
 def _cfg(username: str) -> Config:
     return Config(league_id="1", root=Path("/tmp/x"), stats_from=2025, detail_from=2025, current_season=2026,
-                  username=username)
+                  usernames=(username,) if username else ())
 
 
 def test_my_roster_id_matches_username_case_insensitively() -> None:
@@ -70,7 +70,7 @@ def test_settings_scopes_by_field_group() -> None:
     base = _cfg("ann")
     assert settings_scopes(base, base) == set()
     assert settings_scopes(base, replace(base, league_id="2")) == {"league"}
-    assert settings_scopes(base, replace(base, username="bob")) == {"league"}
+    assert settings_scopes(base, replace(base, usernames=("bob",))) == {"league"}
     assert settings_scopes(base, replace(base, stats_from=2010)) == {"history"}
     assert settings_scopes(base, replace(base, detail_from=2021)) == {"history"}
     assert settings_scopes(base, replace(base, blend_k=9.0)) == {"model"}

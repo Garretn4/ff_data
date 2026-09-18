@@ -102,12 +102,12 @@ class AppState:
         return datetime.fromisoformat(row[0]) if row else None
 
     def my_roster_id(self) -> int:
-        """Return the roster whose display_name equals cfg.username (case-insensitive), else the first roster's id."""
+        """Return the roster whose display_name equals one of cfg.usernames (case-insensitive), else the first roster's id."""
         if self.ctx is None or not self.ctx.rosters:
             return 1
-        if self.cfg.username:
+        for name in self.cfg.usernames:
             for roster in self.ctx.rosters:
-                if roster.display_name.lower() == self.cfg.username.lower():
+                if roster.display_name.lower() == name.lower():
                     return roster.roster_id
         return self.ctx.rosters[0].roster_id
 
@@ -147,7 +147,7 @@ class AppState:
 def settings_scopes(old: Config, new: Config) -> set[str]:
     """Which parts of the app a config change touches."""
     scopes: set[str] = set()
-    if (old.league_id, old.username) != (new.league_id, new.username):
+    if (old.league_id, old.usernames) != (new.league_id, new.usernames):
         scopes.add("league")
     if (old.stats_from, old.detail_from) != (new.stats_from, new.detail_from):
         scopes.add("history")
