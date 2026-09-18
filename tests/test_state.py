@@ -62,6 +62,12 @@ def test_my_roster_id_is_one_before_the_league_loads() -> None:
     assert AppState(cfg=_cfg("x")).my_roster_id() == 1
 
 
+def test_my_roster_id_walks_usernames_in_order() -> None:
+    rosters = (Roster(4, "u1", "A", "bob", None, (), (), ()), Roster(7, "u2", "B", "ann", None, (), (), ()))
+    state = AppState(cfg=replace(_cfg("zed"), usernames=("zed", "ann", "bob")), ctx=_ctx(rosters))
+    assert state.my_roster_id() == 7
+
+
 def test_config_and_live_agree_on_sources() -> None:
     assert CONFIG_SOURCES == SOURCES
 
