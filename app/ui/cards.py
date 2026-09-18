@@ -7,8 +7,10 @@ from app.ui.theme import ACCENT, CARD, MUTED, NEGATIVE, POSITIVE, TEXT, echart_b
 
 def player_card(row: dict, max_market: float, max_ros: float) -> None:
     """Render a single player card with stats and sparkline."""
-    market_pct = (row["market_value"] / max_market * 100) if max_market > 0 else 0
-    ros_pct = (row["ros_primary"] / max_ros * 100) if max_ros > 0 else 0
+    market_value = row.get("market_value") or 0.0
+    ros_primary = row.get("ros_primary") or 0.0
+    market_pct = (market_value / max_market * 100) if max_market > 0 else 0
+    ros_pct = (ros_primary / max_ros * 100) if max_ros > 0 else 0
     intrinsic = row.get("intrinsic", 0.0) or 0.0
     trend = row.get("trend", []) or []
 
