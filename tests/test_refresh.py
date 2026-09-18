@@ -15,18 +15,25 @@ LEAGUE = {"league_id": "1", "name": "Test League", "season": "2025", "total_rost
           "roster_positions": ["QB", "RB", "WR", "TE", "FLEX", "BN"], "previous_league_id": None}
 
 
+def make_sleeper_handler(seen: list[str]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        seen.append(path)
+        if path == "/v1/state/nfl":
+            return httpx.Response(200, json={"week": 2, "season": "2025"})
+        if path == "/v1/league/1":
+            return httpx.Response(200, json=LEAGUE)
+        if path == "/v1/players/nfl":
+            return httpx.Response(200, json={
+                "4046": {"full_name": "Patrick Mahomes", "position": "QB", "team": "KC", "age": 30, "injury_status": None},
+                "DET": {"full_name": "Detroit Lions", "position": "DEF", "team": "DET"},
+            })
+        return httpx.Response(200, json=[])
+    return handler
+
+
 def sleeper_handler(request: httpx.Request) -> httpx.Response:
-    path = request.url.path
-    if path == "/v1/state/nfl":
-        return httpx.Response(200, json={"week": 2, "season": "2025"})
-    if path == "/v1/league/1":
-        return httpx.Response(200, json=LEAGUE)
-    if path == "/v1/players/nfl":
-        return httpx.Response(200, json={
-            "4046": {"full_name": "Patrick Mahomes", "position": "QB", "team": "KC", "age": 30, "injury_status": None},
-            "DET": {"full_name": "Detroit Lions", "position": "DEF", "team": "DET"},
-        })
-    return httpx.Response(200, json=[])
+    return make_sleeper_handler([])(request)
 
 
 def market_handler(request: httpx.Request) -> httpx.Response:
@@ -62,3 +69,22 @@ def test_refresh_populates_tables_and_summary(tmp_path: Path) -> None:
         "SELECT count(*) FROM identity_diagnostics WHERE source = 'sleeper_players'"
     ).fetchone()[0]
     assert diagnostics_count == 1
+
+
+def test_refresh_fetches_matchups_through_the_regular_season(tmp_path: Path) -> None:
+    seen: list[str] = []
+    cfg = Config(league_id="1", root=tmp_path, stats_from=2025, detail_from=2025, current_season=2025)
+    store = Store(cfg.sqlite_path)
+    con = connect(cfg.duckdb_path)
+    client = SleeperClient(store, http=httpx.Client(transport=httpx.MockTransport(make_sleeper_handler(seen))), refresh=True)
+    refresh(cfg, client, con, store, httpx.Client(transport=httpx.MockTransport(market_handler)),
+            {"player_stats": lambda seasons: pl.DataFrame({"player_id": ["00-1"], "season": seasons[:1], "week": [1],
+                                                           "position": ["QB"], "passing_yards": [300.0]})},
+            {"ff_playerids": lambda: pl.DataFrame({"gsis_id": ["00-1"], "sleeper_id": [4046], "fantasypros_id": [1],
+                                                   "pfr_id": ["x"], "name": ["Patrick Mahomes"], "position": ["QB"],
+                                                   "team": ["KC"], "birthdate": ["1995-09-17"]})},
+            now=datetime(2025, 9, 16, 12, 0, 0))
+    matchup_weeks = sorted(int(p.rsplit("/", 1)[1]) for p in seen if "/matchups/" in p)
+    tx_weeks = sorted(int(p.rsplit("/", 1)[1]) for p in seen if "/transactions/" in p)
+    assert matchup_weeks == list(range(1, 15))   # LEAGUE has no settings -> playoff_week_start defaults to 15
+    assert tx_weeks == [1, 2]

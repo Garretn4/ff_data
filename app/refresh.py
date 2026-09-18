@@ -32,13 +32,18 @@ class RefreshSummary:
     unmatched_players: int = 0
 
 
+DEFAULT_PLAYOFF_WEEK_START = 15
+
+
 def _pull_league(client: SleeperClient, league_id: str, week: int) -> dict[str, Any]:
     league = client.league(league_id)
     client.users(league_id)
     client.rosters(league_id)
     client.traded_picks(league_id)
-    for w in range(1, week + 1):
+    last_regular = int((league.get("settings") or {}).get("playoff_week_start", DEFAULT_PLAYOFF_WEEK_START)) - 1
+    for w in range(1, max(week, last_regular) + 1):
         client.matchups(league_id, w)
+    for w in range(1, week + 1):
         client.transactions(league_id, w)
     return league
 
