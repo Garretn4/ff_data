@@ -56,14 +56,14 @@ def heatmap_page() -> None:
             "grid": {"height": "80%", "top": 40},
             "xAxis": {
                 "type": "category",
-                "data": [html.escape(p) for p in positions],
+                "data": positions,
                 "splitArea": {"show": False},
                 "axisLine": {"lineStyle": {"color": "#262626"}},
                 "axisLabel": {"color": MUTED, "fontSize": 11},
             },
             "yAxis": {
                 "type": "category",
-                "data": [html.escape(t) for t in teams],
+                "data": teams,
                 "splitArea": {"show": False},
                 "axisLine": {"lineStyle": {"color": "#262626"}},
                 "axisLabel": {"color": MUTED, "fontSize": 11},
