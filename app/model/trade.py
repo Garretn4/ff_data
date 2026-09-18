@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.model.league import LeagueContext, Roster
-from app.model.lineup import team_strength
+from app.model.lineup import WeeklyIndex, index_weekly, strength_from_index
 from app.model.live import Projection
 
 
@@ -23,12 +23,17 @@ def startable(roster: Roster) -> set[str]:
 
 
 def trade_delta(ctx: LeagueContext, proj: Projection, roster_a: Roster, roster_b: Roster,
-                give_a: set[str], give_b: set[str]) -> TradeResult:
+                give_a: set[str], give_b: set[str], index: WeeklyIndex | None = None,
+                before: tuple[float, float] | None = None) -> TradeResult:
+    idx = index if index is not None else index_weekly(proj.weekly)
     a_before, b_before = startable(roster_a), startable(roster_b)
-    a_after = (a_before - give_a) | give_b
-    b_after = (b_before - give_b) | give_a
-    before_a = team_strength(ctx.slots, proj.weekly, a_before)
-    after_a = team_strength(ctx.slots, proj.weekly, a_after)
-    before_b = team_strength(ctx.slots, proj.weekly, b_before)
-    after_b = team_strength(ctx.slots, proj.weekly, b_after)
+    a_after = (a_before - give_a) | (give_b & b_before)
+    b_after = (b_before - give_b) | (give_a & a_before)
+    if before is None:
+        before_a = strength_from_index(ctx.slots, idx, a_before)
+        before_b = strength_from_index(ctx.slots, idx, b_before)
+    else:
+        before_a, before_b = before
+    after_a = strength_from_index(ctx.slots, idx, a_after)
+    after_b = strength_from_index(ctx.slots, idx, b_after)
     return TradeResult(after_a - before_a, after_b - before_b, before_a, after_a, before_b, after_b)
