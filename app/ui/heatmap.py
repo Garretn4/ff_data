@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from nicegui import ui
 
 from app.model.heatmap import position_strength, surplus
@@ -35,8 +37,8 @@ def heatmap_page() -> None:
                     surplus = round(pos_data["surplus"][0], 1)
                     heatmap_data.append({
                         "value": [x_idx, y_idx, surplus],
-                        "team": team,
-                        "pos": pos,
+                        "team": html.escape(team),
+                        "pos": html.escape(pos),
                         "points": points,
                         "median": median,
                     })
@@ -54,14 +56,14 @@ def heatmap_page() -> None:
             "grid": {"height": "80%", "top": 40},
             "xAxis": {
                 "type": "category",
-                "data": positions,
+                "data": [html.escape(p) for p in positions],
                 "splitArea": {"show": False},
                 "axisLine": {"lineStyle": {"color": "#262626"}},
                 "axisLabel": {"color": MUTED, "fontSize": 11},
             },
             "yAxis": {
                 "type": "category",
-                "data": teams,
+                "data": [html.escape(t) for t in teams],
                 "splitArea": {"show": False},
                 "axisLine": {"lineStyle": {"color": "#262626"}},
                 "axisLabel": {"color": MUTED, "fontSize": 11},
