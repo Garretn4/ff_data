@@ -57,7 +57,10 @@ def player_values(ctx: LeagueContext, con: duckdb.DuckDBPyConnection, store: Sto
         pl.col("position").replace_strict(repl, default=0.0, return_dtype=pl.Float64).alias("replacement_ros")
     ).with_columns((pl.col("ros_primary") - pl.col("replacement_ros")).alias("intrinsic"))
     trend = _trend_stats(sleeper_points(store, ctx.league_id, list(range(1, ctx.week))))
-    return frame.join(trend, on="sleeper_id", how="left").select(
+    frame = frame.join(trend, on="sleeper_id", how="left").with_columns(
+        pl.coalesce(pl.col("name"), pl.concat_str([pl.col("nfl_team"), pl.lit(" DEF")])).alias("name")
+    )
+    return frame.select(
         "sleeper_id", "gsis_id", "name", "position", "nfl_team", "roster_id", "team_name", "market_value", "market_rank",
         "ros_primary", "ros_secondary", "replacement_ros", "intrinsic", "floor", "ceiling", "consistency", "trend", "injury_status",
     )
