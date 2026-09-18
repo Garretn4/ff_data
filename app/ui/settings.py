@@ -6,12 +6,12 @@ import os
 from nicegui import run, ui
 
 from app.config import CONFIG_FILE, SAVED_KEYS, SOURCES, config_from_form, validate_settings
-from app.ui.layout import frame, on_refresh
+from app.ui.layout import frame, on_refresh, on_switch
 from app.ui.state import get_state
-from app.ui.theme import MUTED, NEGATIVE, POSITIVE
+from app.ui.theme import ACCENT, MUTED, NEGATIVE, POSITIVE, TEXT
 
 MESSAGES = {
-    "league": "League saved and reloaded",
+    "league": "Usernames saved and leagues rediscovered",
     "history": "History range saved. Refresh to pull the new seasons.",
     "model": "Blend weights saved and projections recomputed",
     "source": "Default source saved",
@@ -54,8 +54,6 @@ def settings_page() -> None:
                     save.enabled = not errors
                 return not errors
 
-            ui.input("League id", on_change=lambda _: check()).bind_value(form, "league_id").props("dark")
-            ui.label(FIELD_HELP["league_id"]).classes("ff-label")
             ui.input("Usernames", on_change=lambda _: check()).bind_value(form, "usernames").props("dark")
             ui.label(FIELD_HELP["usernames"]).classes("ff-label")
             ui.select(list(SOURCES), label="Default source", on_change=lambda _: check()) \
@@ -87,11 +85,29 @@ def settings_page() -> None:
                 state.error = None
                 ui.notify(MESSAGES[scope], type="positive" if scope != "none" else "info")
                 refresh_row.visible = scope == "history"
+                leagues_section.refresh()
 
             save = ui.button("Save", on_click=on_save)
             check()
             with refresh_row:
                 ui.label("New history range is saved but not loaded.").style(f"color:{MUTED}")
                 ui.button("Refresh now", on_click=on_refresh).props(f"color={POSITIVE}")
+
+        @ui.refreshable
+        def leagues_section() -> None:
+            ui.label("LEAGUES").classes("ff-label")
+            if not state.summaries:
+                ui.label("No leagues found yet. Save a username, then Refresh.").style(f"color:{MUTED}")
+                return
+            for summary in state.summaries:
+                with ui.row().classes("ff-card q-pa-sm items-center gap-4 w-full no-wrap"):
+                    ui.label(summary.label).style(f"color:{TEXT};min-width:18rem")
+                    ui.label(", ".join(summary.members)).classes("ff-label")
+                    if summary.league_id == state.active:
+                        ui.label("active").style(f"color:{ACCENT}")
+                    else:
+                        ui.button("Switch", on_click=lambda _, lid=summary.league_id: on_switch(lid)).props("dense outline")
+
+        leagues_section()
 
         ui.label(f"Config file: {state.cfg.root / CONFIG_FILE}").classes("ff-label")
