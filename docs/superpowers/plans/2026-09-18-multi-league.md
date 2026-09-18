@@ -188,7 +188,7 @@ def test_user_and_user_leagues_paths_and_ttl(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request.url.path)
         if request.url.path == "/v1/user/nobody":
-            return httpx.Response(200, json=None)
+            return httpx.Response(200, text="null")
         if request.url.path.startswith("/v1/user/"):
             if "/leagues/" in request.url.path:
                 return httpx.Response(200, json=[{"league_id": "9", "name": "L"}])
@@ -462,7 +462,7 @@ git commit -m "Discover leagues for every configured Sleeper user"
         if path == "/v1/user/ann":
             return httpx.Response(200, json={"user_id": "u1", "display_name": "Ann"})
         if path == "/v1/user/ghost":
-            return httpx.Response(200, json=None)
+            return httpx.Response(200, text="null")
         if path == "/v1/user/u1/leagues/nfl/2025":
             return httpx.Response(200, json=[LEAGUE, {**LEAGUE, "league_id": "2", "name": "Other"}])
 ```
