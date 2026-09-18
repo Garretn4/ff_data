@@ -2,6 +2,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import polars as pl
+import pytest
 
 from app.config import SOURCES as CONFIG_SOURCES, Config, load_config
 from app.model.league import LeagueContext, Roster
@@ -127,3 +128,28 @@ def test_recompute_model_refreshes_only_the_model_team_weeks(monkeypatch) -> Non
     assert state.team_weeks["consensus"] is sentinel_frame
     expected = team_week_projections(ctx, model_proj)
     assert state.team_weeks["model"].equals(expected)
+
+
+def test_load_leaves_state_untouched_when_projection_fails(monkeypatch) -> None:
+    state = AppState(cfg=_cfg("ann"), ctx=None)
+    monkeypatch.setattr(state, "_connect", lambda: (None, None))
+    monkeypatch.setattr("app.ui.state.load_league_context", lambda store, league_id: _ctx(()))
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("app.ui.state.project", _boom)
+
+    with pytest.raises(RuntimeError):
+        state.load()
+    assert state.ctx is None
+    assert state.projections == {}
+    assert state.team_weeks == {}
+
+    other_ctx = _ctx((A,))
+    state2 = AppState(cfg=_cfg("ann"), ctx=other_ctx)
+    monkeypatch.setattr(state2, "_connect", lambda: (None, None))
+
+    with pytest.raises(RuntimeError):
+        state2.load()
+    assert state2.ctx is other_ctx

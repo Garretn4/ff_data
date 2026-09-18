@@ -55,13 +55,19 @@ class AppState:
         return self.store, self.con
 
     def load(self) -> None:
-        """Rebuild the league context, both projection sources, the value table, and cached matchups."""
+        """Rebuild the league context, both projection sources, the value table, and cached matchups.
+
+        Every step is computed into a local before any field is assigned, so a failure partway
+        through (e.g. project() raising after the league context changed) leaves the previous,
+        internally-consistent state in place instead of a mix of old and new fields.
+        """
         store, con = self._connect()
-        self.ctx = load_league_context(store, self.cfg.league_id)
-        self.projections = {source: project(con, store, self.ctx, source, params=self.cfg.blend) for source in SOURCES}
-        self.team_weeks = {source: team_week_projections(self.ctx, proj) for source, proj in self.projections.items()}
+        ctx = load_league_context(store, self.cfg.league_id)
+        projections = {source: project(con, store, ctx, source, params=self.cfg.blend) for source in SOURCES}
+        matchups = load_matchups(store, self.cfg.league_id, list(range(1, ctx.playoff_week_start)))
+        team_weeks = {source: team_week_projections(ctx, proj) for source, proj in projections.items()}
+        self.ctx, self.projections, self.matchups, self.team_weeks = ctx, projections, matchups, team_weeks
         self._rebuild_values()
-        self.matchups = load_matchups(store, self.cfg.league_id, list(range(1, self.ctx.playoff_week_start)))
         self.last_refresh = self._league_refreshed_at()
 
     def refresh(self) -> RefreshSummary:
@@ -117,8 +123,9 @@ class AppState:
         if self.ctx is None:
             return
         store, con = self._connect()
-        self.projections["model"] = project(con, store, self.ctx, "model", params=self.cfg.blend)
-        self.team_weeks["model"] = team_week_projections(self.ctx, self.projections["model"])
+        model_projection = project(con, store, self.ctx, "model", params=self.cfg.blend)
+        model_team_weeks = team_week_projections(self.ctx, model_projection)
+        self.projections["model"], self.team_weeks["model"] = model_projection, model_team_weeks
         self._rebuild_values()
 
     def apply_settings(self, new: Config) -> str:
