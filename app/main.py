@@ -6,7 +6,7 @@ import os
 from nicegui import app, background_tasks, run, ui
 
 from app.ui.screens import register_all
-from app.ui.state import AppState, get_state
+from app.ui.state import AppState, get_state, startup_plan
 from app.ui.theme import apply_theme
 
 NATIVE_WINDOW_SIZE = (1440, 900)
@@ -14,29 +14,42 @@ BROWSER_PORT = 8765
 
 
 async def _background_refresh(state: AppState) -> None:
+    state.refreshing = True
     try:
         await run.io_bound(state.refresh)
-    except Exception as exc:  # startup refresh must never crash the app; surface it instead
+    except Exception as exc:  # background refresh must never crash the app; surface it instead
         state.error = str(exc)
-        print(f"startup refresh failed: {exc}")
+        print(f"background refresh failed: {exc}")
+    finally:
+        state.refreshing = False
+
+
+async def _load_then_maybe_refresh(state: AppState, refresh_after: bool) -> None:
+    """Load the cached league first so screens render, then refresh if it's stale."""
+    try:
+        await run.io_bound(state.load)
+    except Exception as exc:
+        state.error = str(exc)
+        print(f"startup load failed: {exc}")
+        return
+    if refresh_after:
+        await _background_refresh(state)
 
 
 async def _on_startup() -> None:
     state = get_state()
     try:
+        has_cache = state.has_cache()
         stale = state.is_stale()
     except Exception as exc:
         state.error = str(exc)
         print(f"startup check failed: {exc}")
         return
-    if stale:
+    load_now, refresh_in_background = startup_plan(has_cache, stale)
+    if load_now:
+        background_tasks.create(_load_then_maybe_refresh(state, refresh_in_background), name="startup_load")
+    elif refresh_in_background:
         background_tasks.create(_background_refresh(state), name="startup_refresh")
-        return
-    try:
-        state.load()
-    except Exception as exc:
-        state.error = str(exc)
-        print(f"startup load failed: {exc}")
 
 
 def _register_root() -> None:

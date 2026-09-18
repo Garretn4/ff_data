@@ -22,6 +22,7 @@ from app.sleeper import SleeperClient
 DEFAULT_SOURCE = "model"
 STALE_AFTER = timedelta(hours=1)
 ROOT = Path(__file__).resolve().parent.parent.parent
+LOCK_ERROR_MARKER = "Could not set lock"
 
 
 @dataclass
@@ -35,6 +36,7 @@ class AppState:
     source: str = DEFAULT_SOURCE
     last_refresh: datetime | None = None
     error: str | None = None
+    refreshing: bool = False
 
     def _connect(self) -> tuple[Store, duckdb.DuckDBPyConnection]:
         if self.store is None:
@@ -71,12 +73,32 @@ class AppState:
         last = self._league_refreshed_at()
         return last is None or datetime.now() - last > STALE_AFTER
 
+    def has_cache(self) -> bool:
+        """True when a cached league snapshot exists, regardless of staleness."""
+        return self._league_refreshed_at() is not None
+
     def _league_refreshed_at(self) -> datetime | None:
         _, con = self._connect()
         if not table_exists(con, "league_meta"):
             return None
         row = con.execute("SELECT refreshed_at FROM league_meta ORDER BY refreshed_at DESC LIMIT 1").fetchone()
         return datetime.fromisoformat(row[0]) if row else None
+
+
+def startup_plan(has_cache: bool, stale: bool) -> tuple[bool, bool]:
+    """(load_now, refresh_in_background) for the startup sequence.
+
+    A cached league loads immediately so screens render right away; a refresh
+    runs in the background whenever the cache is stale or missing entirely.
+    """
+    return has_cache, stale or not has_cache
+
+
+def friendly_error(msg: str) -> str:
+    """Rewrite the DuckDB cross-process lock error into an actionable message."""
+    if LOCK_ERROR_MARKER in msg:
+        return "another ff-analyst instance is already running; close it and press Retry"
+    return msg
 
 
 STATE = AppState()
