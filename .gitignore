@@ -6,3 +6,4 @@ cache/
 docs/backtest/*.parquet
 .env
 config.local.toml
+.playwright-mcp/
