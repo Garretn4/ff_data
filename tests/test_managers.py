@@ -77,3 +77,19 @@ class BrokenLinkClient:
 def test_league_chain_stops_at_broken_link() -> None:
     chain = league_chain(BrokenLinkClient(), "1")
     assert len(chain) == 1
+
+
+class CyclicLinkClient:
+    def __init__(self) -> None:
+        self.leagues = {
+            "1": {"league_id": "1", "season": "2026", "previous_league_id": "2"},
+            "2": {"league_id": "2", "season": "2025", "previous_league_id": "1"},
+        }
+
+    def league(self, league_id: str) -> dict:
+        return self.leagues[league_id]
+
+
+def test_league_chain_stops_on_cycle() -> None:
+    chain = league_chain(CyclicLinkClient(), "1")
+    assert len(chain) == 2

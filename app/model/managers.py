@@ -27,8 +27,12 @@ class TransactionClient(Protocol):
 
 def league_chain(client: Any, league_id: str) -> list[dict[str, Any]]:
     chain: list[dict[str, Any]] = []
+    visited: set[str] = set()
     current: str | None = league_id
     while current:
+        if current in visited:
+            break
+        visited.add(current)
         try:
             league = client.league(current)
         except httpx.HTTPError:
