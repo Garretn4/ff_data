@@ -9,7 +9,7 @@ from app.model.league import LeagueContext, Roster
 from app.model.live import SOURCES, Projection
 from app.model.standings import team_week_projections
 from app.ui.state import SCOPE_ORDER, AppState, friendly_error, settings_scopes, startup_plan
-from tests.test_standings import A, B, POINTS, weekly
+from tests.test_standings import A, B, POINTS, ctx_with, weekly
 
 
 def test_startup_plan_loads_cached_league_and_refreshes_when_stale() -> None:
@@ -112,7 +112,7 @@ def test_apply_settings_source_only_with_no_ctx(tmp_path: Path) -> None:
 
 
 def test_recompute_model_refreshes_only_the_model_team_weeks(monkeypatch) -> None:
-    ctx = _ctx((A, B))
+    ctx = ctx_with((A, B), ["RB", "FLEX"])
     state = AppState(cfg=_cfg("ann"), ctx=ctx)
     monkeypatch.setattr(state, "_connect", lambda: (None, None))
     weekly_frame = weekly(POINTS, [3])
