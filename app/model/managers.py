@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
 import duckdb
+import httpx
 import polars as pl
 
 from app.data.identity import id_hub
@@ -28,7 +29,10 @@ def league_chain(client: Any, league_id: str) -> list[dict[str, Any]]:
     chain: list[dict[str, Any]] = []
     current: str | None = league_id
     while current:
-        league = client.league(current)
+        try:
+            league = client.league(current)
+        except httpx.HTTPError:
+            break
         chain.append(league)
         current = league.get("previous_league_id")
     return chain
@@ -58,14 +62,12 @@ def collect_transactions(client: TransactionClient, chain: list[dict[str, Any]],
     return pl.DataFrame(rows, schema=schema)
 
 
-def _trade_flows(adds: dict[str, int]) -> dict[int, dict[str, list[str]]]:
+def _trade_flows(adds: dict[str, int], drops: dict[str, int]) -> dict[int, dict[str, list[str]]]:
     flows: dict[int, dict[str, list[str]]] = {}
     for player, to_roster in adds.items():
         flows.setdefault(to_roster, {"acquired": [], "given": []})["acquired"].append(player)
-    for player, to_roster in adds.items():
-        for roster in flows:
-            if roster != to_roster and player not in flows[roster]["acquired"]:
-                flows[roster]["given"].append(player)
+    for player, from_roster in drops.items():
+        flows.setdefault(from_roster, {"acquired": [], "given": []})["given"].append(player)
     return flows
 
 
@@ -76,16 +78,23 @@ def _overpay(flow: dict[str, list[str]], values: dict[str, float]) -> float:
 
 
 def _rank_values(con: duckdb.DuckDBPyConnection, season: int, week: int, scoring: dict[str, float],
-                  hub: pl.DataFrame, cache: dict[int, pl.DataFrame]) -> dict[str, float]:
-    if season not in cache:
+                  hub: pl.DataFrame, curve_cache: dict[int, pl.DataFrame],
+                  value_cache: dict[tuple[int, int], dict[str, float]]) -> dict[str, float]:
+    key = (season, week)
+    if key in value_cache:
+        return value_cache[key]
+    if season not in curve_cache:
         stats = con.execute("SELECT * FROM player_stats WHERE season = ? AND season_type = 'REG'", [season - 1]).pl()
-        cache[season] = rank_to_ppg_curve(season_ppg(score_weeks(stats, scoring)), season - 1)
+        curve_cache[season] = rank_to_ppg_curve(season_ppg(score_weeks(stats, scoring)), season - 1)
     try:
         snap = positional_ranks(consensus_snapshot(con, season, week))
     except ValueError:
+        value_cache[key] = {}
         return {}
     with_ids = snap.join(hub.select("fantasypros_id", "sleeper_id"), on="fantasypros_id", how="inner").drop_nulls("sleeper_id")
-    return {str(s): curve_ppg(cache[season], str(p), int(r)) for s, p, r in zip(with_ids["sleeper_id"], with_ids["pos"], with_ids["pos_rank"])}
+    values = {str(s): curve_ppg(curve_cache[season], str(p), int(r)) for s, p, r in zip(with_ids["sleeper_id"], with_ids["pos"], with_ids["pos_rank"])}
+    value_cache[key] = values
+    return values
 
 
 @dataclass(frozen=True)
@@ -115,12 +124,14 @@ def _owner_maps(chain: list[dict[str, Any]], client: Any) -> dict[tuple[int, int
 def _process_trade(
     row: dict[str, Any], positions: dict[str, str], owners: dict[tuple[int, int], str],
     con: duckdb.DuckDBPyConnection, scoring: dict[str, float], hub: pl.DataFrame,
-    curve_cache: dict[int, pl.DataFrame], bucket: Callable[[str], Bucket],
+    curve_cache: dict[int, pl.DataFrame], value_cache: dict[tuple[int, int], dict[str, float]],
+    bucket: Callable[[str], Bucket],
 ) -> None:
     season = int(row["season"])
     adds = dict(zip(row["add_player"], row["add_roster"]))
-    flows = _trade_flows(adds)
-    values = _rank_values(con, season, int(row["week"]), scoring, hub, curve_cache)
+    drops = dict(zip(row["drop_player"], row["drop_roster"]))
+    flows = _trade_flows(adds, drops)
+    values = _rank_values(con, season, int(row["week"]), scoring, hub, curve_cache, value_cache)
     owners_in = {r: owners.get((season, r), "") for r in flows}
     for roster, flow in flows.items():
         b = bucket(owners_in[roster])
@@ -160,6 +171,7 @@ def profiles(ctx: LeagueContext, client: Any, con: duckdb.DuckDBPyConnection) ->
     positions = dict(con.execute("SELECT sleeper_id, position FROM sleeper_players").fetchall())
     hub = id_hub(con.execute("SELECT * FROM ff_playerids").pl())
     curve_cache: dict[int, pl.DataFrame] = {}
+    value_cache: dict[tuple[int, int], dict[str, float]] = {}
     stats: dict[str, Bucket] = {}
 
     def bucket(owner: str) -> Bucket:
@@ -168,7 +180,7 @@ def profiles(ctx: LeagueContext, client: Any, con: duckdb.DuckDBPyConnection) ->
 
     for row in tx.iter_rows(named=True):
         if row["type"] == "trade":
-            _process_trade(row, positions, owners, con, ctx.scoring, hub, curve_cache, bucket)
+            _process_trade(row, positions, owners, con, ctx.scoring, hub, curve_cache, value_cache, bucket)
         else:
             _process_waiver(row, positions, owners, bucket)
 
