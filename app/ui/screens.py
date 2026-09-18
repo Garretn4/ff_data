@@ -4,12 +4,15 @@ from __future__ import annotations
 import importlib
 
 SCREEN_MODULES: tuple[str, ...] = (
+    "app.ui.league",
+    "app.ui.matchups",
     "app.ui.heatmap",
     "app.ui.players",
     "app.ui.scatter",
     "app.ui.trade",
     "app.ui.finder",
     "app.ui.managers",
+    "app.ui.settings",
 )
 
 

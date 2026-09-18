@@ -12,12 +12,15 @@ from app.ui.state import AppState, friendly_error, get_state
 from app.ui.theme import BORDER, NEGATIVE, TEXT
 
 SCREEN_LINKS: tuple[tuple[str, str], ...] = (
+    ("League", "/league"),
+    ("Matchups", "/matchups"),
     ("Heatmap", "/heatmap"),
     ("Players", "/players"),
     ("Scatter", "/scatter"),
     ("Trade", "/trade"),
     ("Finder", "/finder"),
     ("Managers", "/managers"),
+    ("Settings", "/settings"),
 )
 
 

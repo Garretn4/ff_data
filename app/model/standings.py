@@ -173,3 +173,25 @@ def lineup_for(ctx: LeagueContext, proj: Projection, roster: Roster, week: int) 
 def win_probability(points_a: float, points_b: float) -> float:
     """P(a beats b) when each side's score has std dev SIGMA: Phi(diff / (SIGMA * sqrt 2))."""
     return 0.5 * (1.0 + math.erf((points_a - points_b) / (2.0 * SIGMA)))
+
+
+def league_rows(ctx: LeagueContext, projections: dict[str, Projection], matchups: Matchups, me: int) -> list[dict[str, object]]:
+    """One row per roster for the League table, ranked by power score."""
+    recs = records(matchups, ctx.week)
+    averages = {source: ros_averages(team_week_projections(ctx, proj)) for source, proj in projections.items()}
+    power = power_scores(recs, averages["model"])
+    rows: list[dict[str, object]] = []
+    for roster in ctx.rosters:
+        rid = roster.roster_id
+        rec = recs.get(rid, Record.empty(rid))
+        rows.append({
+            "id": rid, "team": roster.team_name, "mine": rid == me, "record": rec.text,
+            "pf": round(rec.points_for, 1), "pa": round(rec.points_against, 1),
+            "model": round(averages["model"].get(rid, 0.0), 1),
+            "consensus": round(averages["consensus"].get(rid, 0.0), 1),
+            "power": round(power.get(rid, 0.0), 2),
+        })
+    rows.sort(key=lambda row: (-float(row["power"]), int(row["id"])))
+    for rank, row in enumerate(rows, start=1):
+        row["rank"] = rank
+    return rows

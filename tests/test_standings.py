@@ -69,7 +69,8 @@ import polars as pl
 from app.model.league import LeagueContext, Roster
 from app.model.live import Projection
 from app.model.standings import (
-    PROJECTION_WEIGHT, lineup_for, power_scores, ros_averages, team_week_projections, week_totals, win_probability,
+    PROJECTION_WEIGHT, league_rows, lineup_for, power_scores, ros_averages, team_week_projections, week_totals,
+    win_probability,
 )
 
 
@@ -147,3 +148,24 @@ def test_win_probability_is_symmetric_and_monotone() -> None:
     assert math.isclose(win_probability(110.0, 100.0) + win_probability(100.0, 110.0), 1.0)
     assert win_probability(120.0, 100.0) > win_probability(110.0, 100.0) > 0.5
     assert 0.63 < win_probability(110.0, 100.0) < 0.65   # 10 / (20 * sqrt 2) = 0.354 sd -> 0.638
+
+
+def test_league_rows_rank_by_power_and_flag_me() -> None:
+    ctx = ctx_with((A, B), ["RB", "FLEX"])
+    strong = {"a1": ("RB", 20.0), "a2": ("RB", 10.0), "a3": ("WR", 9.0), "b1": ("RB", 5.0), "b2": ("WR", 5.0)}
+    projections = {"model": Projection("model", weekly(strong, [3]), pl.DataFrame()),
+                   "consensus": Projection("consensus", weekly(POINTS, [3]), pl.DataFrame())}
+    rows = league_rows(ctx, projections, MATCHUPS, me=2)
+    assert [r["id"] for r in rows] == [1, 2]
+    assert rows[0]["rank"] == 1 and rows[0]["mine"] is False and rows[1]["mine"] is True
+    assert rows[0]["record"] == "1-1" and rows[0]["pf"] == 170.0 and rows[0]["pa"] == 165.0
+    assert rows[0]["model"] == 30.0 and rows[0]["consensus"] == 30.0
+    assert rows[1]["model"] == 10.0 and rows[1]["consensus"] == 30.0
+    assert rows[0]["power"] > rows[1]["power"]
+
+
+def test_league_rows_before_any_games() -> None:
+    ctx = ctx_with((A, B), ["RB"])
+    proj = Projection("model", weekly(POINTS, [3]), pl.DataFrame())
+    rows = league_rows(ctx, {"model": proj, "consensus": proj}, {}, me=1)
+    assert [r["record"] for r in rows] == ["0-0", "0-0"] and [r["id"] for r in rows] == [2, 1]
