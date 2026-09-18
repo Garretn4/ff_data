@@ -48,7 +48,7 @@ def test_team_strength_matches_weekly_strength_sum() -> None:
 
 
 def _random_players(rng: random.Random, count: int) -> list[tuple[str, str, float]]:
-    return [(f"p{i}", rng.choice(POSITIONS), round(rng.uniform(0, 30), 2)) for i in range(count)]
+    return [(f"p{i}", rng.choice(POSITIONS), round(rng.uniform(-5, 30), 2)) for i in range(count)]
 
 
 def _reference_optimal(slots: list[str], players: list[tuple[str, str, float]]) -> float:
@@ -81,6 +81,11 @@ def _assert_valid_assignment(slots: list[str], players: list[tuple[str, str, flo
         assert eligible(slots[int(slot_i)], pos), f"{pid} ({pos}) not eligible for slot {slot_i} ({slots[int(slot_i)]})"
         running += pts
     assert running == pytest.approx(total)
+
+
+def test_negative_dedicated_candidate_leaves_slot_empty() -> None:
+    total, assignment = optimal_lineup(["DEF"], [("badD", "DEF", -5.0)])
+    assert (total, assignment) == (0.0, {})
 
 
 def test_solver_matches_brute_force_on_random_rosters() -> None:

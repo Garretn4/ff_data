@@ -84,7 +84,7 @@ def optimal_lineup(slots: list[str], players: list[Player]) -> tuple[float, dict
     total = 0.0
     used_ids: set[str] = set()
     for pos, indices in plan.dedicated_indices.items():
-        taken = by_position.get(pos, [])[: len(indices)]
+        taken = [p for p in by_position.get(pos, [])[: len(indices)] if p[2] > 0]
         for slot_i, player in zip(indices, taken):
             assignment[str(slot_i)] = player[0]
             total += player[2]
