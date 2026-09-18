@@ -624,7 +624,23 @@ Methods:
         return price_picks(owned_picks(ctx), self._market_snapshot(), pick_tiers(power), ctx.season + 1)
 ```
 
-In `load()`, after the locals for `ctx`, `projections`, `matchups`, `team_weeks` are computed and before assignment, compute `picks, unpriced = self._price_picks(ctx, team_weeks, matchups)` and assign `self.picks`, `self.unpriced_picks` together with the other fields (keeping the atomic-assignment rule from the final fix wave).
+In `load()`, after the locals for `ctx`, `projections`, `matchups`, `team_weeks` are computed and before assignment, compute `picks, unpriced = self._price_picks(ctx, team_weeks, matchups)` and assign `self.picks`, `self.unpriced_picks` together with the other fields.
+
+Also close the residual gap the previous plan's final re-review parked: today `load()` assigns the four fields and then calls `_rebuild_values()`, so a failure inside the value rebuild leaves `values` stale against a new league. Add a helper and use it from both `load()` and `_rebuild_values()`:
+
+```python
+    def _compute_values(self, ctx: LeagueContext, projections: dict[str, Projection]) -> pl.DataFrame:
+        store, con = self._connect()
+        other = SOURCES[0] if self.source == SOURCES[1] else SOURCES[1]
+        return player_values(ctx, con, store, projections[self.source], projections[other])
+
+    def _rebuild_values(self) -> None:
+        if self.ctx is None:
+            return
+        self.values = self._compute_values(self.ctx, self.projections)
+```
+
+In `load()`, compute `values = self._compute_values(ctx, projections)` into a local with the others and assign all of `ctx, projections, matchups, team_weeks, values, picks, unpriced_picks` in one block; do not call `_rebuild_values()` from `load()` any more. Fix the docstring so it claims only what holds: no field changes unless every step succeeds. Extend `test_load_leaves_state_untouched_when_projection_fails` with a second case where `app.ui.state.player_values` raises and assert `state.values` is the pre-seeded frame (identity) and `state.ctx` is unchanged.
 
 `app/ui/league.py`:
 
