@@ -17,6 +17,7 @@ SEASON_LOADERS: dict[str, SeasonLoader] = {
     "ff_opportunity": lambda seasons: nfl.load_ff_opportunity(seasons=seasons),
     "schedules": lambda seasons: nfl.load_schedules(seasons=seasons),
     "rosters": lambda seasons: nfl.load_rosters(seasons=seasons),
+    "rosters_weekly": lambda seasons: nfl.load_rosters_weekly(seasons=seasons),
     "injuries": lambda seasons: nfl.load_injuries(seasons=seasons),
 }
 

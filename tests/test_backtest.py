@@ -5,8 +5,9 @@ import polars as pl
 import pytest
 
 from app.model.backtest import (
-    SeasonContext, _games_per_player, _player_teams,
-    actual_ros, check_coverage, evaluate, gate_passes, mae, precision_at, remaining_games, spearman, write_report,
+    SeasonContext, WeekContext, _eval_params, _games_per_player, _player_teams,
+    actual_ros, check_coverage, evaluate, gate_passes, mae, model_prediction, precision_at, remaining_games,
+    spearman, write_report,
 )
 from app.model.projections import BlendParams
 
@@ -105,6 +106,8 @@ def test_player_teams_prefers_current_then_previous_season() -> None:
         ages=empty,
         schedules=empty,
         prev_teams=pl.DataFrame({"player_id": ["p2"], "team": ["Z"]}),
+        rosters_weekly=empty,
+        injuries=empty,
     )
     out = _player_teams(ctx, 3)
     result = dict(zip(out["player_id"], out["team"]))
@@ -120,3 +123,53 @@ def test_check_coverage_names_missing_season() -> None:
     with pytest.raises(ValueError, match="2023") as exc_info:
         check_coverage(con, [2024], [3])
     assert "missing" in str(exc_info.value)
+
+
+def test_model_prediction_multiplies_by_avail_ros() -> None:
+    blended = pl.DataFrame({"player_id": ["a", "b"], "position": ["RB", "RB"], "ppg": [10.0, 10.0]})
+    games = pl.DataFrame({"player_id": ["a", "b"], "games": [2, 2]})
+    avail = pl.DataFrame({"player_id": ["a"], "avail_now": [1.0], "avail_ros": [0.5]})
+    out = model_prediction(blended, games, avail).sort("player_id")
+    result = dict(zip(out["player_id"], out["pred"]))
+    assert result["a"] == 10.0
+    assert result["b"] == 0.0
+
+
+def test_eval_params_zeroes_prediction_for_unavailable_player() -> None:
+    ctx = SeasonContext(
+        season=2024,
+        scored=pl.DataFrame(),
+        prev_seasonal=pl.DataFrame(),
+        prev_curve=pl.DataFrame(),
+        opportunity=pl.DataFrame(),
+        hub=pl.DataFrame(),
+        consensus_preseason=pl.DataFrame(),
+        age_curve=pl.DataFrame(),
+        ages=pl.DataFrame(),
+        schedules=pl.DataFrame(),
+        prev_teams=pl.DataFrame(),
+        rosters_weekly=pl.DataFrame(),
+        injuries=pl.DataFrame(),
+    )
+    features = pl.DataFrame({
+        "player_id": ["a", "b"], "position": ["RB", "RB"],
+        "ecr_ppg": [10.0, 10.0], "last_ppg": [10.0, 10.0], "age_mult": [1.0, 1.0],
+        "usage_ppg": [10.0, 10.0], "actual_ppg": [10.0, 10.0], "n": [4, 4],
+    })
+    games = pl.DataFrame({"player_id": ["a", "b"], "games": [2, 2]})
+    actual = pl.DataFrame({"player_id": ["a", "b"], "ros_points": [20.0, 20.0]})
+    universe = pl.DataFrame({"player_id": ["a", "b"]})
+    market_eval = pl.DataFrame(schema={
+        "position": pl.Utf8, "spearman": pl.Float64, "mae": pl.Float64, "precision": pl.Float64,
+        "n": pl.Int64, "source": pl.Utf8,
+    })
+    avail = pl.DataFrame({"player_id": ["a", "b"], "avail_now": [1.0, 0.0], "avail_ros": [1.0, 0.0]})
+    wc = WeekContext(
+        ctx=ctx, week=5, features=features, games=games, actual=actual,
+        starters={"RB": 1}, universe=universe, market_eval=market_eval, avail=avail,
+    )
+    out = _eval_params(wc, BlendParams(k=4.0, a=0.5, b=0.5))
+    model_rows = out.filter(pl.col("source") == "model")
+    assert model_rows.height == 2
+    pooled_mae = model_rows.filter(pl.col("position") == "ALL")["mae"][0]
+    assert pooled_mae == 10.0

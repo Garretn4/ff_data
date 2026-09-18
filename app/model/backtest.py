@@ -13,6 +13,7 @@ from app.data.identity import id_hub
 from app.data.scoring import SKILL_POSITIONS, expected_points, score_weeks
 from app.market import consensus_snapshot
 from app.model.agecurve import fit_age_curve, player_ages, season_ppg
+from app.model.availability import availability
 from app.model.projections import (
     BlendParams, Inputs, blend, build_features, curve_ppg, positional_ranks, rank_to_ppg_curve,
 )
@@ -80,10 +81,14 @@ def market_prediction(
     ).select("player_id", "position", "pred")
 
 
-def model_prediction(blended: pl.DataFrame, games_per_player: pl.DataFrame) -> pl.DataFrame:
-    return blended.join(games_per_player, on="player_id", how="left").with_columns(
-        (pl.col("ppg") * pl.col("games").fill_null(0)).alias("pred")
-    ).select("player_id", "position", "pred")
+def model_prediction(blended: pl.DataFrame, games_per_player: pl.DataFrame, avail: pl.DataFrame) -> pl.DataFrame:
+    return (
+        blended.join(games_per_player, on="player_id", how="left")
+        .join(avail.select("player_id", "avail_ros"), on="player_id", how="left")
+        .with_columns(pl.col("avail_ros").fill_null(0.0))
+        .with_columns((pl.col("ppg") * pl.col("games").fill_null(0) * pl.col("avail_ros")).alias("pred"))
+        .select("player_id", "position", "pred")
+    )
 
 
 def _metrics_row(frame: pl.DataFrame, position: str, n_top: int) -> dict[str, object]:
@@ -121,6 +126,8 @@ class SeasonContext:
     ages: pl.DataFrame
     schedules: pl.DataFrame
     prev_teams: pl.DataFrame
+    rosters_weekly: pl.DataFrame
+    injuries: pl.DataFrame
 
 
 def _scored_weeks(con: duckdb.DuckDBPyConnection, seasons: list[int], scoring: dict[str, float]) -> pl.DataFrame:
@@ -149,6 +156,14 @@ def load_season_context(con: duckdb.DuckDBPyConnection, season: int, scoring: di
         con.execute("SELECT * FROM ff_opportunity WHERE season = ?", [season]).pl(), scoring
     ).select("player_id", "season", "week", "exp_points")
     schedules = con.execute("SELECT season, week, game_type, home_team, away_team FROM schedules WHERE season = ?", [season]).pl()
+    rosters_weekly = con.execute(
+        "SELECT season, week, game_type, gsis_id, status FROM rosters_weekly WHERE season = ? AND game_type = 'REG'",
+        [season],
+    ).pl()
+    injuries = con.execute(
+        "SELECT season, week, game_type, gsis_id, report_status FROM injuries WHERE season = ? AND game_type = 'REG'",
+        [season],
+    ).pl()
     return SeasonContext(
         season=season,
         scored=scored,
@@ -161,6 +176,8 @@ def load_season_context(con: duckdb.DuckDBPyConnection, season: int, scoring: di
         ages=ages_all.filter(pl.col("season") == season).select("player_id", "age"),
         schedules=schedules,
         prev_teams=_prev_season_teams(history, season),
+        rosters_weekly=rosters_weekly,
+        injuries=injuries,
     )
 
 
@@ -196,6 +213,7 @@ class WeekContext:
     starters: dict[str, int]
     universe: pl.DataFrame
     market_eval: pl.DataFrame
+    avail: pl.DataFrame
 
 
 def _prepare_weeks(
@@ -214,17 +232,19 @@ def _prepare_weeks(
             )
             market = market_prediction(consensus_snapshot(con, ctx.season, week), ctx.hub, ctx.prev_curve, games)
             market_eval = evaluate(market, actual, starters).with_columns(pl.lit("consensus").alias("source"))
+            universe = market.select("player_id")
+            avail = availability(ctx.rosters_weekly, ctx.injuries, ctx.season, week, universe)
             prepared.append(
                 WeekContext(
                     ctx=ctx, week=week, features=features, games=games, actual=actual, starters=starters,
-                    universe=market.select("player_id"), market_eval=market_eval,
+                    universe=universe, market_eval=market_eval, avail=avail,
                 )
             )
     return prepared
 
 
 def _eval_params(wc: WeekContext, params: BlendParams) -> pl.DataFrame:
-    model = model_prediction(blend(wc.features, params), wc.games)
+    model = model_prediction(blend(wc.features, params), wc.games, wc.avail)
     model_eval = evaluate(
         model.join(wc.universe, on="player_id", how="inner"), wc.actual, wc.starters
     ).with_columns(pl.lit("model").alias("source"))
@@ -250,6 +270,8 @@ def check_coverage(con: duckdb.DuckDBPyConnection, seasons: list[int], weeks: li
             raise ValueError(f"season {season}: missing ff_opportunity")
         if _count(con, "SELECT count(*) FROM schedules WHERE season = ? AND game_type = 'REG'", [season]) == 0:
             raise ValueError(f"season {season}: missing schedules")
+        if _count(con, "SELECT count(*) FROM rosters_weekly WHERE season = ? AND game_type = 'REG'", [season]) == 0:
+            raise ValueError(f"season {season}: missing rosters_weekly")
         for week in weeks:
             try:
                 snapshot = consensus_snapshot(con, season, week)
