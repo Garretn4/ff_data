@@ -18,11 +18,10 @@ def scatter_page() -> None:
         values = state.values
         source = state.source
 
-        show_free = ui.checkbox("Include free agents", value=False)
+        show_free = ui.checkbox("Include free agents", value=False, on_change=lambda: render())
 
         def render() -> None:
-            for child in container.children[:]:
-                child.delete()
+            container.clear()
             filtered = values.filter(~pl.col("roster_id").is_null()) if not show_free.value else values
             pts = scatter_points(filtered)
             labels = quadrant_labels(pts)
@@ -32,7 +31,7 @@ def scatter_page() -> None:
             series_data = [{"value": [row["market_pct"], row["intrinsic_pct"], html.escape(row["name"])], "itemStyle": {"color": team_color(None)}} for row in pts.to_dicts()]
 
             options = {
-                **echart_base,
+                **echart_base(),
                 "title": {"text": "Market Value vs Intrinsic Value", "left": "center"},
                 "tooltip": {
                     "formatter": ":(p) => '<div>' + p.value[2] + '</div><div>Market ' + p.value[0].toFixed(0) + '%</div><div>Intrinsic ' + p.value[1].toFixed(0) + '%</div>'",
@@ -82,5 +81,4 @@ def scatter_page() -> None:
                             ui.label(name).classes("text-sm")
 
         container = ui.element("div").classes("w-full")
-        show_free.on_change(render)
         render()
