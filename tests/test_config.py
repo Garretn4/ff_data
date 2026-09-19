@@ -121,6 +121,7 @@ def test_split_names_from_string_or_sequence() -> None:
     assert split_names(("ann", " bob ")) == ("ann", "bob")
     assert split_names(None) == () and split_names("") == ()
     assert split_names(5) == () and split_names(True) == ()
+    assert split_names("ann, ann") == ("ann",)
 
 
 def test_load_config_reads_usernames_array_and_lifts_legacy_username(tmp_path: Path) -> None:

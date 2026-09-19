@@ -18,7 +18,6 @@ MESSAGES = {
     "none": "Nothing changed",
 }
 FIELD_HELP = {
-    "league_id": "Sleeper league id (digits)",
     "usernames": "Sleeper display names, comma-separated; the first one with a roster is you",
     "source_default": "Projection source the app opens with",
     "stats_from": "First season of box-score history to load",

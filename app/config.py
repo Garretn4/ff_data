@@ -70,11 +70,11 @@ class Config:
 
 
 def split_names(value: object) -> tuple[str, ...]:
-    """Usernames from a comma-separated string or any sequence; blanks dropped, order kept."""
+    """Usernames from a comma-separated string or any sequence; blanks dropped, duplicates dropped, order kept."""
     if not isinstance(value, (str, list, tuple)):
         return ()
     parts = value.split(",") if isinstance(value, str) else list(value)  # type: ignore[call-overload]
-    return tuple(p for p in (str(x).strip() for x in parts) if p)
+    return tuple(dict.fromkeys(p for p in (str(x).strip() for x in parts) if p))
 
 
 def _read_toml(path: Path) -> dict[str, object]:

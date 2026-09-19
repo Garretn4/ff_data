@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from app.data.store import Store
-from app.sleeper import PLAYERS_TTL, STATE_TTL, USER_TTL, RateLimiter, SleeperClient
+from app.sleeper import PLAYERS_TTL, STATE_TTL, RateLimiter, SleeperClient
 
 
 class FakeClock:
@@ -124,9 +124,12 @@ def test_user_and_user_leagues_paths_and_ttl(tmp_path: Path) -> None:
     client = make_client(tmp_path, handler, clock)
     assert client.user("ann") == {"user_id": "u1", "display_name": "Ann"}
     assert client.user("ann")["user_id"] == "u1"
-    clock.t += USER_TTL + 1
-    client.user("ann")
+    assert calls.count("/v1/user/ann") == 1
+
+    refreshing_client = make_client(tmp_path, handler, clock, refresh=True)
+    refreshing_client.user("ann")
     assert calls.count("/v1/user/ann") == 2
+
     assert client.user("nobody") is None
     assert client.user_leagues("u1", 2026) == [{"league_id": "9", "name": "L"}]
     assert calls[-1] == "/v1/user/u1/leagues/nfl/2026"
