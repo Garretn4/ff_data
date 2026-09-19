@@ -26,6 +26,7 @@ STALE_AFTER = timedelta(hours=1)
 ROOT = Path(__file__).resolve().parent.parent.parent
 LOCK_ERROR_MARKER = "Could not set lock"
 NOT_CACHED_MARKER = "not cached"
+NO_LEAGUE_MESSAGE = "no league selected; add your Sleeper username in Settings"
 
 
 @dataclass
@@ -142,6 +143,8 @@ class AppState:
 
     def refresh(self) -> RefreshSummary:
         """Pull the active league, shared nflverse data, and its market snapshot, then rebuild it."""
+        if not self.cfg.league_id:
+            raise ValueError(NO_LEAGUE_MESSAGE)
         store, con = self._connect()
         client = SleeperClient(store, refresh=True)
         summary = run_refresh(self.cfg, client, con, store, httpx.Client(timeout=30.0))

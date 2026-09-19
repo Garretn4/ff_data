@@ -95,9 +95,13 @@ def test_validate_settings_accepts_a_good_form() -> None:
 
 
 def test_validate_settings_rejects_bad_fields() -> None:
-    errors = validate_settings(_form(league_id="abc", source_default="magic", stats_from=2021, detail_from=2020,
+    errors = validate_settings(_form(source_default="magic", stats_from=2021, detail_from=2020,
                                      blend_k=0.0, blend_a=1.5, blend_b=-0.1), current_season=2026)
-    assert set(errors) == {"league_id", "source_default", "stats_from", "blend_k", "blend_a", "blend_b"}
+    assert set(errors) == {"source_default", "stats_from", "blend_k", "blend_a", "blend_b"}
+
+
+def test_validate_settings_accepts_a_blank_league_id_on_first_run() -> None:
+    assert validate_settings(_form(league_id="", usernames="ann"), current_season=2026) == {}
 
 
 def test_validate_settings_rejects_missing_numbers() -> None:

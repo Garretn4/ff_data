@@ -137,8 +137,6 @@ def _as_float(value: object) -> float | None:
 def validate_settings(form: Mapping[str, object], current_season: int) -> dict[str, str]:
     """Field name -> error message for a settings form; empty dict means valid."""
     errors: dict[str, str] = {}
-    if not str(form.get("league_id", "")).strip().isdigit():
-        errors["league_id"] = "digits only"
     if not split_names(form.get("usernames")):
         errors["usernames"] = "at least one Sleeper username"
     if form.get("source_default") not in SOURCES:

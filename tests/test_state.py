@@ -227,6 +227,12 @@ def test_my_roster_id_follows_username_order() -> None:
     assert state.my_roster_id() == 4
 
 
+def test_refresh_with_no_league_selected_fails_clearly() -> None:
+    state = AppState(cfg=replace(_cfg("ann"), league_id=""))
+    with pytest.raises(ValueError, match="no league selected"):
+        state.refresh()
+
+
 def test_staleness_reads_the_league_fetch_time(tmp_path: Path) -> None:
     from datetime import datetime
     state = AppState(cfg=replace(_cfg("ann"), root=tmp_path, league_id="1"))
