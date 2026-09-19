@@ -9,10 +9,10 @@ from app.data.nflverse import connect, replace_table
 from app.data.store import Store
 from app.market import (
     consensus_snapshot, fantasycalc_params, fetch_fantasycalc, fetch_ffc_adp, first_gameday,
-    snapshot_fantasycalc,
+    snapshot_fantasycalc, snapshot_source,
 )
 
-LEAGUE = {"total_rosters": 10, "scoring_settings": {"rec": 1.0},
+LEAGUE = {"league_id": "1", "total_rosters": 10, "scoring_settings": {"rec": 1.0},
           "roster_positions": ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "K", "DEF", "BN"]}
 
 FC_BODY = [
@@ -77,7 +77,8 @@ def test_snapshot_fantasycalc_writes_store(tmp_path: Path) -> None:
     http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=FC_BODY)))
     store = Store(tmp_path / "app.sqlite")
     assert snapshot_fantasycalc(store, http, LEAGUE, "2026-09-16T00:00:00") == 2
-    assert store.latest_snapshot("fantasycalc").height == 2
+    assert store.latest_snapshot(snapshot_source(str(LEAGUE["league_id"]))).height == 2
+    assert store.latest_snapshot("fantasycalc").is_empty()
 
 
 def test_first_gameday_raises_without_schedule_rows(tmp_path: Path) -> None:

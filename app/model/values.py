@@ -5,6 +5,7 @@ import duckdb
 import polars as pl
 
 from app.data.store import Store
+from app.market import snapshot_source
 from app.model.league import LeagueContext, sleeper_points
 from app.model.live import Projection, ros_totals
 
@@ -48,7 +49,7 @@ def player_values(ctx: LeagueContext, con: duckdb.DuckDBPyConnection, store: Sto
         frame = frame.join(ros_totals(secondary).select("sleeper_id", pl.col("ros_points").alias("ros_secondary")), on="sleeper_id", how="left")
     else:
         frame = frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("ros_secondary"))
-    market = store.latest_snapshot("fantasycalc").select(
+    market = store.latest_snapshot(snapshot_source(ctx.league_id)).select(
         "sleeper_id", pl.col("value").alias("market_value"), pl.col("overall_rank").alias("market_rank")
     )
     frame = frame.join(market, on="sleeper_id", how="left").join(_ownership(ctx), on="sleeper_id", how="left")

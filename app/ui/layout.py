@@ -7,7 +7,7 @@ from typing import Iterator
 from nicegui import app, run, ui
 
 from app.model.live import SOURCES
-from app.ui.state import AppState, friendly_error, get_state
+from app.ui.state import NOT_CACHED_MARKER, AppState, friendly_error, get_state
 from app.ui.theme import BORDER, NEGATIVE, TEXT
 
 SCREEN_LINKS: tuple[tuple[str, str], ...] = (
@@ -33,6 +33,7 @@ def _on_source_change(value: str) -> None:
     try:
         state.source = value
         state._rebuild_values()
+        state._evict_others()
     except Exception as exc:  # UI boundary: caught, recorded, and surfaced, never swallowed
         state.error = str(exc)
         ui.notify(f"Could not switch source: {exc}", type="negative")
@@ -55,6 +56,39 @@ async def on_refresh() -> None:
     state.error = None
     ui.notify(f"Refreshed {summary.league_name}: week {summary.week}", type="positive")
     ui.navigate.reload()
+
+
+async def on_switch(league_id: str) -> None:
+    """Switch the active league; a never-fetched league is refreshed in the background first."""
+    state = get_state()
+    if league_id == state.active:
+        return
+    state.error = None
+    try:
+        await run.io_bound(state.switch, league_id)
+    except ValueError as exc:
+        if NOT_CACHED_MARKER not in str(exc):
+            state.error = str(exc)
+            ui.notify(friendly_error(state.error), type="negative")
+            return
+        ui.notify("Fetching this league for the first time", type="info")
+        await on_refresh()
+        return
+    except Exception as exc:  # UI boundary: caught, recorded, and surfaced, never swallowed
+        state.error = str(exc)
+        ui.notify(friendly_error(state.error), type="negative")
+        return
+    ui.navigate.reload()
+
+
+def _league_switcher(state: AppState) -> None:
+    if not state.summaries:
+        ui.label("add your Sleeper username in Settings").classes("ff-label")
+        return
+    options = {s.league_id: s.label for s in state.summaries}
+    value = state.active if state.active in options else None
+    props = "dark dense disable" if state.refreshing else "dark dense"
+    ui.select(options, value=value, on_change=lambda e: on_switch(e.value)).classes("min-w-64").props(props)
 
 
 async def _on_retry() -> None:
@@ -81,6 +115,7 @@ def _header() -> None:
                 ui.label(f"WEEK {state.ctx.week}").classes("ff-label")
             _refresh_status(state)
         with ui.row().classes("items-center gap-4"):
+            _league_switcher(state)
             ui.toggle(list(SOURCES), value=state.source, on_change=lambda e: _on_source_change(e.value))
             ui.button("Refresh", on_click=on_refresh)
     with ui.row().classes("items-center gap-4 q-px-md").style(f"border-bottom:1px solid {BORDER}"):
