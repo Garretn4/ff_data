@@ -149,10 +149,12 @@ class AppState:
         """Pull the active league, shared nflverse data, and its market snapshot, then rebuild it."""
         if not self.cfg.league_id:
             raise ValueError(NO_LEAGUE_MESSAGE)
+        league_id = self.cfg.league_id
         store, con = self._connect()
         client = SleeperClient(store, refresh=True)
         summary = run_refresh(self.cfg, client, con, store, httpx.Client(timeout=30.0))
-        self.load()
+        self.leagues[league_id] = self._build(league_id)
+        self.summaries = load_summaries(store, self.cfg.usernames, self.cfg.current_season)
         return summary
 
     def primary(self) -> Projection:

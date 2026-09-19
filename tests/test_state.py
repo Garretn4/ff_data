@@ -266,6 +266,36 @@ def test_staleness_reads_the_league_fetch_time(tmp_path: Path) -> None:
     assert state.is_stale() is True
 
 
+def test_refresh_rebuilds_the_league_it_fetched(tmp_path: Path, monkeypatch) -> None:
+    import app.ui.state as state_mod
+    from app.refresh import RefreshSummary
+
+    state = _state_with(_ctx(()))
+    state.cfg = replace(state.cfg, root=tmp_path, league_id="1")
+    monkeypatch.setattr(state, "_connect", lambda: (None, None))
+
+    def fake_run_refresh(*args, **kwargs) -> RefreshSummary:
+        state._activate("2")
+        return RefreshSummary(league_name="x", week=1)
+
+    built: list[str] = []
+
+    def fake_build(league_id: str) -> LeagueState:
+        built.append(league_id)
+        return LeagueState(ctx=_ctx(()), projections={}, values=pl.DataFrame(), matchups={}, team_weeks={},
+                            last_refresh=None)
+
+    monkeypatch.setattr(state_mod, "run_refresh", fake_run_refresh)
+    monkeypatch.setattr(state, "_build", fake_build)
+    monkeypatch.setattr(state_mod, "load_summaries", lambda store, usernames, season: [])
+
+    state.refresh()
+
+    assert built == ["1"]
+    assert "1" in state.leagues
+    assert state.active == "2"
+
+
 def test_rediscover_falls_back_to_the_first_league_when_active_disappears(tmp_path: Path, monkeypatch) -> None:
     import app.ui.state as state_mod
     from app.model.leagues import LeagueSummary

@@ -87,7 +87,8 @@ def _league_switcher(state: AppState) -> None:
         return
     options = {s.league_id: s.label for s in state.summaries}
     value = state.active if state.active in options else None
-    ui.select(options, value=value, on_change=lambda e: on_switch(e.value)).classes("min-w-64").props("dark dense")
+    props = "dark dense disable" if state.refreshing else "dark dense"
+    ui.select(options, value=value, on_change=lambda e: on_switch(e.value)).classes("min-w-64").props(props)
 
 
 async def _on_retry() -> None:
