@@ -133,11 +133,15 @@ class AppState:
         self.leagues[self.active] = built
         self.summaries = load_summaries(store, self.cfg.usernames, self.cfg.current_season)
 
-    def switch(self, league_id: str) -> None:
-        """Make league_id active and persist it; build it on first use. Raises when it was never fetched."""
+    def _activate(self, league_id: str) -> None:
+        """Make league_id active and persist it, without building it."""
         self.active = league_id
         self.cfg = replace(self.cfg, league_id=league_id)
         save_config(self.cfg.root, self.cfg)
+
+    def switch(self, league_id: str) -> None:
+        """Make league_id active and persist it; build it on first use. Raises when it was never fetched."""
+        self._activate(league_id)
         if league_id not in self.leagues:
             self.leagues[league_id] = self._build(league_id)
 
@@ -199,7 +203,7 @@ class AppState:
         self.error = "; ".join(errors) if errors else None
         ids = [s.league_id for s in self.summaries]
         if self.summaries and self.active not in ids:
-            self.switch(ids[0])
+            self._activate(ids[0])
 
     def apply_settings(self, new: Config) -> str:
         """Save new config, apply it by scope, and return the most significant scope (or "none")."""

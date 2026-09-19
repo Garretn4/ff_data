@@ -252,7 +252,13 @@ def test_rediscover_falls_back_to_the_first_league_when_active_disappears(tmp_pa
     state.cfg = replace(state.cfg, root=tmp_path, usernames=("bob",))
     summaries = [LeagueSummary("5", "Five", 2026, "in_season", 10, 0, 3, ("bob",))]
     monkeypatch.setattr(state_mod, "discover", lambda source, names, season: (summaries, ["user zed: not found"]))
-    switched: list[str] = []
-    monkeypatch.setattr(state, "switch", lambda league_id: switched.append(league_id))
+
+    def fake_build(league_id: str) -> LeagueState:
+        raise ValueError(f"league {league_id} {NOT_CACHED_MARKER}; run refresh first")
+
+    monkeypatch.setattr(state, "_build", fake_build)
     state._rediscover()
-    assert state.summaries == summaries and switched == ["5"] and state.error == "user zed: not found"
+    assert state.summaries == summaries and state.error == "user zed: not found"
+    assert state.active == "5"
+    assert load_config(tmp_path, env={}).league_id == "5"
+    assert "5" not in state.leagues

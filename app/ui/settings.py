@@ -85,7 +85,14 @@ def settings_page() -> None:
                 state.error = None
                 ui.notify(MESSAGES[scope], type="positive" if scope != "none" else "info")
                 refresh_row.visible = scope == "history"
-                leagues_section.refresh()
+                if scope != "league":
+                    leagues_section.refresh()
+                    return
+                if state.active and state.active not in state.leagues:
+                    ui.notify("Fetching your league for the first time", type="info")
+                    await on_refresh()
+                else:
+                    ui.navigate.reload()
 
             save = ui.button("Save", on_click=on_save)
             check()
