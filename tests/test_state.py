@@ -133,6 +133,28 @@ def test_apply_settings_source_only_with_no_ctx(tmp_path: Path) -> None:
     assert AppState(cfg=replace(_cfg("ann"), root=tmp_path)).apply_settings(replace(_cfg("ann"), root=tmp_path, source_default="consensus")) == "source"
 
 
+def test_source_or_blend_change_evicts_other_loaded_leagues(tmp_path: Path, monkeypatch) -> None:
+    state = _state_with(_ctx(()))
+    state.cfg = replace(state.cfg, root=tmp_path)
+    other_ctx = replace(_ctx(()), league_id="2")
+    other_league = LeagueState(ctx=other_ctx, projections={}, values=pl.DataFrame(), matchups={}, team_weeks={},
+                                last_refresh=None)
+    monkeypatch.setattr(state, "_rebuild_values", lambda: None)
+    monkeypatch.setattr(state, "_recompute_model", lambda: None)
+
+    state.leagues["2"] = other_league
+    state.apply_settings(replace(state.cfg, source_default="consensus"))
+    assert set(state.leagues) == {state.active}
+
+    state.leagues["2"] = other_league
+    state.apply_settings(replace(state.cfg, blend_k=9.0))
+    assert set(state.leagues) == {state.active}
+
+    state.leagues["2"] = other_league
+    state.apply_settings(replace(state.cfg, stats_from=2010))
+    assert set(state.leagues) == {state.active, "2"}
+
+
 def test_recompute_model_refreshes_only_the_model_team_weeks(monkeypatch) -> None:
     ctx = ctx_with((A, B), ["RB", "FLEX"])
     weekly_frame = weekly(POINTS, [3])

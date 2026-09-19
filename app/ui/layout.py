@@ -33,6 +33,7 @@ def _on_source_change(value: str) -> None:
     try:
         state.source = value
         state._rebuild_values()
+        state._evict_others()
     except Exception as exc:  # UI boundary: caught, recorded, and surfaced, never swallowed
         state.error = str(exc)
         ui.notify(f"Could not switch source: {exc}", type="negative")

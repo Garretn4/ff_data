@@ -196,6 +196,11 @@ class AppState:
         current.projections["model"], current.team_weeks["model"] = model_projection, model_team_weeks
         self._rebuild_values()
 
+    def _evict_others(self) -> None:
+        """Drop every loaded league but the active one so they rebuild with the current source and weights."""
+        current = self._current()
+        self.leagues = {self.active: current} if current is not None else {}
+
     def _rediscover(self) -> None:
         """Re-list leagues for the configured usernames over the network; fall back to the first if the active one is gone."""
         store, _ = self._connect()
@@ -218,6 +223,8 @@ class AppState:
             self._recompute_model()
         elif "source" in scopes:
             self._rebuild_values()
+        if scopes & {"model", "source"}:
+            self._evict_others()
         return next((scope for scope in SCOPE_ORDER if scope in scopes), "none")
 
 
