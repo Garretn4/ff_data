@@ -1,4 +1,4 @@
-I dedicate this to those who just can't seem to beat that one person before playoffs week after week <3
+I dedicate this to those who just can't seem to beat that one person before playoffs year after year <3
 # FF Analyst
 
 A fantasy football league dashboard and player analysis project. It brings league data, projections, and market information together to help compare teams and make roster decisions.
@@ -29,4 +29,3 @@ uv run pytest -q
 
 ## Dedication
 
-I dedicate this to those who just can't seem to beat that one person before playoffs week after week <3
