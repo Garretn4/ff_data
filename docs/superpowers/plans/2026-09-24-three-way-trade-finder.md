@@ -18,6 +18,25 @@
 - **Model per task.** Implementer and reviewer subagents run on `sonnet`, passed as the Agent tool's `model` option. Task 5 is plain wiring and may use `haiku`. Keep `haiku` off Tasks 3, 4, and 6.
 - Run tests with `uv run pytest -q`. The baseline is 185 passed.
 
+## Deviations from spec
+
+Reviewers should check tasks against these, not the spec's original wording.
+
+- **The existing two-sided grader stays as it is, and is not rewritten as a wrapper over `ring_delta`.** The old trade screen can put the same roster on both sides until Task 6, and `ring_delta` rejects a repeated roster. A test pins the two graders to identical results.
+- **Warm-up is `warm_tables(state)` in `app/ui/layout.py`, not an `AppState.warm_pair_tables()` method.** It is async and NiceGUI-specific because it uses `run.io_bound`. State stays free of NiceGUI, and `AppState.ring_tables()` is the blocking builder it calls.
+- **On a stale startup, warm-up runs once, after the refresh, whether or not the refresh succeeded.** It does not also run after the cached load. The refresh replaces the league object, so a warm-up before it would waste about 25 s of CPU competing with the refresh.
+- **3-way ranking has one extra tie-break, the fewest total players.** This comes after the smallest delta and the total delta. It stops variants that add a never-starting throw-in from crowding the top 10.
+
+## Smoke-run recipe
+
+Foreground `sleep` is blocked in this environment. Every smoke step uses this recipe:
+
+1. Start the app with the Bash tool's `run_in_background: true` option: `FF_NATIVE=0 uv run python -m app run > /tmp/ff-smoke.log 2>&1`.
+2. Wait until it serves, with no sleep: `curl -s --retry 30 --retry-connrefused --retry-delay 2 -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8765/finder`.
+3. When done, stop it: `lsof -ti tcp:8765 | xargs kill`.
+
+If the log shows `Could not set lock`, the user's own ff-analyst instance is open. That is not a code bug. Report it and do not try to fix it.
+
 ## Global Constraints
 
 - No new dependencies. Approved: nicegui[native], duckdb, polars, pyarrow, httpx, nflreadpy, pytest.
@@ -515,7 +534,7 @@ git commit -m "Build pair tables of mutually graded trade packages"
 - Produces:
   - `RingDeal(ring: tuple[Leg, Leg, Leg], deltas: dict[int, float])`, a frozen dataclass. `ring[0]` is always me. Each leg gives to the next, and the last gives to me.
   - `find_ring_trades(tables: PairTables, me: int, opponents: Sequence[int], partner: int | None = None, limit: int = 10) -> list[RingDeal]`.
-  - Results are ranked by the smallest delta, descending. Ties break by the largest total delta, then by roster ids and sorted player ids, so the order is deterministic.
+  - Results are ranked by the smallest delta, descending. Ties break by the largest total delta, then the fewest total players, then roster ids and sorted player ids, so the order is deterministic.
 
 **Why the join is exact.** Take me as `a`, with `a` giving to `b`, `b` to `c`, and `c` to `a`.
 - a's delta is `accepts[(a, c)][give_a][give_c]`, because a gives `give_a` and receives `give_c`.
@@ -647,7 +666,8 @@ def _rings(tables: PairTables, a: int, b: int, c: int) -> list[RingDeal]:
 
 def _rank(deal: RingDeal) -> tuple:
     legs = tuple((leg.roster_id, tuple(sorted(leg.gives))) for leg in deal.ring)
-    return (-min(deal.deltas.values()), -sum(deal.deltas.values()), legs)
+    players = sum(len(leg.gives) for leg in deal.ring)
+    return (-min(deal.deltas.values()), -sum(deal.deltas.values()), players, legs)
 
 
 def find_ring_trades(tables: PairTables, me: int, opponents: Sequence[int], partner: int | None = None,
@@ -933,6 +953,8 @@ async def warm_tables(state: AppState) -> None:
     except Exception as exc:  # background warm-up must never crash the app; surface it instead
         state.error = str(exc)
         print(f"trade table warm-up failed: {exc}")
+        return
+    print("trade tables ready")
 ```
 
 In `on_refresh`, after the `ui.notify(f"Refreshed ...")` line and before `ui.navigate.reload()`, add:
@@ -969,17 +991,19 @@ async def _refresh_then_warm(state: AppState) -> None:
 
 
 async def _load_then_maybe_refresh(state: AppState, refresh_after: bool) -> None:
-    """Load the cached league first so screens render, then refresh if it's stale."""
+    """Load the cached league first so screens render, refresh if it's stale, then warm the 3-way tables."""
     try:
         await run.io_bound(state.load)
     except Exception as exc:
         state.error = str(exc)
         print(f"startup load failed: {exc}")
         return
-    _warm(state)
     if refresh_after:
-        await _refresh_then_warm(state)
+        await _background_refresh(state)  # a failed refresh leaves the cached league loaded and usable
+    _warm(state)
 ```
+
+`_refresh_then_warm` warms only when the refresh succeeds. It is used on the no-cache path, where a failed refresh means no league is loaded. A warm-up there would overwrite the refresh error with "no league selected".
 
 In `_on_startup`, change the `elif` branch to:
 
@@ -993,14 +1017,12 @@ In `_on_startup`, change the `elif` branch to:
 Run: `uv run pytest -q`
 Expected: all pass.
 
-Smoke run. This needs `config.local.toml` with a cached league, which exists in this repo:
+Smoke run, using the Smoke-run recipe in the plan header. This needs `config.local.toml` with a cached league, which exists in this repo.
 
-```bash
-FF_NATIVE=0 uv run python -m app run > /tmp/ff-smoke.log 2>&1 & APP=$!
-sleep 60; curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8765/finder; grep -i "warm-up failed\|Traceback" /tmp/ff-smoke.log || echo "no warm-up errors"; kill $APP
-```
-
-Expected: `200`, then `no warm-up errors`. macOS has no `timeout` command, so the server is stopped with `kill`.
+1. Start the app in the background and wait for it to serve. Expected: `200`.
+2. Use the Monitor tool with an until-loop, bounded at 120 s, on `grep -E "trade tables ready|warm-up failed|Traceback" /tmp/ff-smoke.log`.
+   Expected: `trade tables ready` appears, with no `warm-up failed` and no `Traceback`.
+3. Stop the app.
 
 - [ ] **Step 4: Commit**
 
@@ -1306,17 +1328,17 @@ def _trade_link(me: int, opp: int, give: tuple[str, ...], get: tuple[str, ...]) 
 Run: `uv run pytest -q`
 Expected: all pass.
 
-Smoke run:
+Smoke run, using the Smoke-run recipe in the plan header. Start the app and wait for it to serve, then run:
 
 ```bash
-FF_NATIVE=0 uv run python -m app run > /tmp/ff-smoke.log 2>&1 & APP=$!
-sleep 25
 for u in "/trade" "/trade?ring=1,2,3&give=|" "/trade?ring=1,1,999,x&give=zz" "/finder"; do
   curl -s -o /dev/null -w "$u %{http_code}\n" "http://127.0.0.1:8765$u"; done
-grep -c Traceback /tmp/ff-smoke.log; kill $APP
+grep -c Traceback /tmp/ff-smoke.log
 ```
 
-Expected: four lines ending `200`, then `0`. NiceGUI renders the page body over its websocket, so a traceback in the log is the real failure signal. Then open `http://127.0.0.1:8765/trade` in a browser, or with the Playwright tools if available, and check two things. "Add third team" should add a third column. Toggling a chip should change the summary deltas.
+Expected: four lines ending `200`, then `0`. NiceGUI renders the page body over its websocket, so a traceback in the log is the real failure signal.
+
+Then open `http://127.0.0.1:8765/trade` in a browser, or with the Playwright tools if available, and check two things. "Add third team" should add a third column. Toggling a chip should change the summary deltas. Afterwards, grep the log for `Traceback` again and stop the app.
 
 - [ ] **Step 8: Commit**
 
@@ -1459,20 +1481,15 @@ Also update the module docstring to: `"""Trade finder screen: search for 2-way d
 Run: `uv run pytest -q`
 Expected: all pass.
 
-Smoke run:
+Smoke run, using the Smoke-run recipe in the plan header. Start the app and wait for it to serve. Expected: `200`, and `grep -c Traceback /tmp/ff-smoke.log` prints `0`.
 
-```bash
-FF_NATIVE=0 uv run python -m app run > /tmp/ff-smoke.log 2>&1 & APP=$!
-sleep 20; curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8765/finder; grep -c Traceback /tmp/ff-smoke.log
-```
-
-Expected: `200` and `0`. Then open `/finder` in a browser, or drive it with Playwright if available:
+Then open `/finder` in a browser, or drive it with Playwright if available:
 1. Switch to 3-way, leave Partner on All opponents, and press Find.
 2. Within about 30 s, cards should appear with three "gives ... to ..." lines and three deltas. Every delta should be positive.
 3. The card link should open `/trade` with three columns whose deltas match the card.
 4. A second Find should return almost instantly.
 
-If the league has no fair rings, "No deals found yet." is a correct result. Say so in the report instead of treating it as a failure. Stop the server afterwards with `kill $APP`.
+If the league has no fair rings, "No deals found yet." is a correct result. Say so in the report instead of treating it as a failure. Stop the app afterwards.
 
 - [ ] **Step 5: Commit**
 
