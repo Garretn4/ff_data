@@ -101,3 +101,10 @@ class SleeperClient:
 
     def players(self) -> dict[str, dict[str, Any]]:
         return self._get("/players/nfl", PLAYERS_TTL)
+
+    def user(self, username: str) -> dict[str, Any] | None:
+        """Sleeper user by username; None when Sleeper does not know the name."""
+        return self._get(f"/user/{username}", None)
+
+    def user_leagues(self, user_id: str, season: int) -> list[dict[str, Any]]:
+        return self._get(f"/user/{user_id}/leagues/nfl/{season}", None) or []

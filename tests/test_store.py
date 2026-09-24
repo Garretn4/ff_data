@@ -33,3 +33,10 @@ def test_snapshot_roundtrip(tmp_path: Path) -> None:
     assert latest.height == 1
     assert latest["taken_at"][0] == "2026-09-17T10:00:00"
     assert store.latest_snapshot("nothing").height == 0
+
+
+def test_fetched_at_returns_the_put_time_or_none(tmp_path: Path) -> None:
+    store = Store(tmp_path / "app.sqlite")
+    assert store.fetched_at("sleeper:/league/1") is None
+    store.put_cached("sleeper:/league/1", "{}", now=1234.5)
+    assert store.fetched_at("sleeper:/league/1") == 1234.5

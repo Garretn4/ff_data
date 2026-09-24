@@ -28,6 +28,12 @@ def make_sleeper_handler(seen: list[str]):
                 "4046": {"full_name": "Patrick Mahomes", "position": "QB", "team": "KC", "age": 30, "injury_status": None},
                 "DET": {"full_name": "Detroit Lions", "position": "DEF", "team": "DET"},
             })
+        if path == "/v1/user/ann":
+            return httpx.Response(200, json={"user_id": "u1", "display_name": "Ann"})
+        if path == "/v1/user/ghost":
+            return httpx.Response(200, text="null")
+        if path == "/v1/user/u1/leagues/nfl/2025":
+            return httpx.Response(200, json=[LEAGUE, {**LEAGUE, "league_id": "2", "name": "Other"}])
         return httpx.Response(200, json=[])
     return handler
 
@@ -44,7 +50,7 @@ def market_handler(request: httpx.Request) -> httpx.Response:
 
 
 def test_refresh_populates_tables_and_summary(tmp_path: Path) -> None:
-    cfg = Config(league_id="1", root=tmp_path, stats_from=2025, detail_from=2025, current_season=2025)
+    cfg = Config(league_id="1", root=tmp_path, stats_from=2025, detail_from=2025, current_season=2025, usernames=())
     store = Store(cfg.sqlite_path)
     con = connect(cfg.duckdb_path)
     client = SleeperClient(store, http=httpx.Client(transport=httpx.MockTransport(sleeper_handler)), refresh=True)
@@ -60,6 +66,7 @@ def test_refresh_populates_tables_and_summary(tmp_path: Path) -> None:
     assert summary.tables["player_stats"] == 1 and summary.tables["ff_playerids"] == 1
     assert summary.snapshot_rows == 1
     assert summary.unmapped_scoring == ["weird_key"]
+    assert summary.leagues == 0
     meta = con.execute("SELECT league_id, name, week FROM league_meta").fetchone()
     assert meta == ("1", "Test League", 2)
     players = con.execute("SELECT sleeper_id, gsis_id FROM sleeper_players ORDER BY sleeper_id").fetchall()
@@ -88,3 +95,20 @@ def test_refresh_fetches_matchups_through_the_regular_season(tmp_path: Path) -> 
     tx_weeks = sorted(int(p.rsplit("/", 1)[1]) for p in seen if "/transactions/" in p)
     assert matchup_weeks == list(range(1, 15))   # LEAGUE has no settings -> playoff_week_start defaults to 15
     assert tx_weeks == [1, 2]
+
+
+def test_refresh_discovers_leagues(tmp_path: Path) -> None:
+    cfg = Config(league_id="1", root=tmp_path, stats_from=2025, detail_from=2025, current_season=2025, usernames=("ann", "ghost"))
+    store = Store(cfg.sqlite_path)
+    con = connect(cfg.duckdb_path)
+    client = SleeperClient(store, http=httpx.Client(transport=httpx.MockTransport(make_sleeper_handler([]))), refresh=True)
+    market_http = httpx.Client(transport=httpx.MockTransport(market_handler))
+    season_loaders = {"player_stats": lambda seasons: pl.DataFrame({
+        "player_id": ["00-1"], "season": seasons[:1], "week": [1], "position": ["QB"], "passing_yards": [300.0]})}
+    static_loaders = {"ff_playerids": lambda: pl.DataFrame({
+        "gsis_id": ["00-1"], "sleeper_id": [4046], "fantasypros_id": [1], "pfr_id": ["x"],
+        "name": ["Patrick Mahomes"], "position": ["QB"], "team": ["KC"], "birthdate": ["1995-09-17"]})}
+    summary = refresh(cfg, client, con, store, market_http, season_loaders, static_loaders,
+                      now=datetime(2025, 9, 16, 12, 0, 0))
+    assert summary.leagues == 2
+    assert "user ghost: not found" in summary.errors
