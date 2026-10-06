@@ -29,3 +29,5 @@ uv run pytest -q
 
 ## Dedication
 I dedicate this to those who just can't seem to beat that one person before playoffs year after year <3
+
+And for the guys who say they will actually try this year until week 4.
