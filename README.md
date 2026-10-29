@@ -17,45 +17,24 @@ The model is being tested against past seasons before its rankings get treated a
 
 This app runs on your own computer. Your league data is downloaded from Sleeper and stored in a folder next to the app. Nothing is uploaded anywhere. You need a Sleeper account and an internet connection.
 
-### 1. Install uv (one time)
-
-`uv` is a free helper that installs everything else the app needs, including the right version of Python.
-
-**Mac:** open the **Terminal** app (press Command + Space, type "Terminal", press Enter). Paste this line and press Enter:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-**Windows:** open **PowerShell** (press the Windows key, type "PowerShell", press Enter). Paste this line and press Enter:
-
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-When it finishes, close the window and open a new one so your computer can find `uv`.
-
-### 2. Download the app (one time)
+### 1. Download the app (one time)
 
 1. On this GitHub page, click the green **Code** button, then **Download ZIP**.
 2. Open your Downloads folder and unzip the file (double click it on Mac, right click and **Extract All** on Windows).
 3. Move the unzipped folder somewhere easy to find, like your Documents folder.
 
-### 3. Start the app
+### 2. Start the app
 
-1. Open Terminal (Mac) or PowerShell (Windows).
-2. Type `cd ` (the letters c, d, then a space), then drag the unzipped folder into the window and press Enter. This tells the window which folder to work in.
-3. Paste this line and press Enter:
+Open the unzipped folder and double click the start file for your computer:
 
-```bash
-uv run python -m app run
-```
+- **Mac:** `Start FF Analyst.command`. The first time, your Mac may say it cannot be opened because it is from an unidentified developer. Right click the file, choose **Open**, then click **Open** again. You only have to do this once.
+- **Windows:** `Start FF Analyst.bat`. The first time, Windows may show a blue "protected your PC" box. Click **More info**, then **Run anyway**.
 
-The first time, it spends a few minutes installing what it needs. After that it starts in seconds. A black app window opens when it is ready.
+A small black window appears and the app opens after it. The first time, it installs a free helper called `uv` and everything the app needs, which takes a few minutes. After that it starts in seconds.
 
-To start the app again later, repeat step 3. To quit, close the app window.
+To start the app again later, double click the same file. To quit, close the app window and the small black window.
 
-### 4. Connect your league
+### 3. Connect your league
 
 1. Click **SETTINGS** in the menu at the top.
 2. Type your Sleeper username in the **Usernames** box. If you are in several leagues with friends, you can add their usernames too, separated by commas.
@@ -106,6 +85,7 @@ Use the menu across the top to move between screens. The **MODEL** and **CONSENS
 - **"another ff-analyst instance is already running"**: the app is already open somewhere else. Close the other window, then click **RETRY**.
 - **"no league selected"**: go to **SETTINGS**, enter your Sleeper username and click **SAVE**.
 - **The numbers look old**: click **REFRESH** at the top right.
+- **The start file will not open, or you prefer typing commands**: open Terminal (Mac) or PowerShell (Windows), type `cd ` and drag the app folder into the window, press Enter, then run `uv run python -m app run`. If `uv` is not found, install it first with the line for your system from https://docs.astral.sh/uv/getting-started/installation/.
 - **No app window opens, or it opens blank**: use your web browser instead. On Mac, run `FF_NATIVE=0 uv run python -m app run`. On Windows PowerShell, run `$env:FF_NATIVE=0; uv run python -m app run`. Then open `http://127.0.0.1:8765` in your browser.
 - **Anything else**: close the window, run the start command again, and open an issue on this GitHub page with a description or screenshot of what you saw.
 
