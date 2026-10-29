@@ -1,6 +1,8 @@
 # FF Analyst
 
-A fantasy football league dashboard and player analysis project. It brings league data, projections, and market information together to help compare teams and make roster decisions.
+My friend's roster decisions warranted an investigation. The investigation now has a dashboard. And if I get paid one more season to have friends play fantasy football with me. I'll have enough money to take all their mothers out on a date.
+
+FF Analyst brings fantasy football league data, projections, and market information together to compare teams, evaluate players, and make roster decisions. The group chat now has supporting evidence.
 
 ## What it shows
 
@@ -9,101 +11,202 @@ A fantasy football league dashboard and player analysis project. It brings leagu
 - Team power rankings
 - Views for matchups, players, trades, and more
 
-The model is being developed with a focus on testing its predictions against past seasons before treating its rankings as reliable.
+The model is being tested against past seasons before its rankings get treated as reliable. Sorting a table does not grant prophetic authority.
 
 ## Project status
 
-This is an active personal project. The interface and model may change as the data pipeline and backtests improve. Rankings and projections are estimates, not guarantees.
+An active personal project. The interface, data pipeline, model, and backtests are still being developed.
+
+Rankings and projections are estimates. The confidence required to send a trade offer remains your responsibility.
 
 ## Development
 
-The project uses Python. The repository includes the application in `app/`, tests in `tests/`, and design notes in `docs/`.
+Built with Python. The repository contains:
 
-To run the tests from the repository root:
+| Directory | Contents |
+| --- | --- |
+| `app/` | Application code |
+| `tests/` | Automated tests |
+| `docs/` | Design notes and the reasoning behind the decisions |
+
+Run the tests from the repository root:
 
 ```bash
 uv sync
 uv run pytest -q
 ```
 
-## The App
+## Settings and tuning
 
-Settings will allow you to edit your model to preference.
+Eventually, you will be able to disagree with the model directly in Settings. A formal complaints department, with sliders.
 
-**Settings**
+**Planned:** once the tuning work ships, model settings will be editable here. League configuration supplied by Sleeper, including lineup slots, scoring rules, and team count, stays tied to the league.
 
-Once the Tuning work ships, everything will be editable here except what comes from Sleeper (lineup slots, scoring rules, team count).
+Those controls are planned, not a description of a finished tuning interface.
 
-### Algorithms
+## How the model works
 
-PPG = ( k × prior + n × data ) ÷ ( k + n )
+### Points per game: the preseason opinion gradually loses authority
 
-n is games played this season. k is a dial (default 4) that says how stubborn the guess is. The prior is the starting guess before any games are played: expert consensus rank converted to points, blended with last season's points, then multiplied by an age adjustment.
+The model blends a starting estimate with current-season performance:
 
-This is a weighted average that shifts over the season. Week 0 you trust the guess based off prior data and by week 12 you are weighting heavier off the current season statistics.
+```text
+PPG = (k × prior + n × data) / (k + n)
+```
 
-### Age, matchup and availability tweaks
+- **prior:** the starting points-per-game estimate before this season’s games are played
+- **data:** the player’s observed points per game this season
+- **n:** games played this season
+- **k:** how much weight the prior gets, expressed in games; default `4`
 
-**Age multiplier** For each position and age, the app looks at history: how did players that age score next year compared to this year? It takes the middle value (the median) of those ratios. A 31-year-old running back might come out at 0.92, so his prior is cut 8%. The value is capped between 0.7 and 1.1. This is a lookup table, not a score, and it only touches the prior.
+The prior starts with expert consensus rank converted to points, blended with last season’s points, then multiplied by an age adjustment.
 
-### Opponent factor
+Before any games are played, the prior carries the estimate. As the season progresses, actual performance gets more influence. With `k = 4` and `n = 12`, current-season data gets 75% of the weight and the prior gets 25%.
 
-How many points has this week's defense allowed to the player's position, divided by the league average? Above 1 means a soft matchup. Early in the year the ratio is pulled toward 1.0 (the same shrinking idea as the PPG blend above, with 6 games as the weight) and capped to 0.9–1.1. Weekly projection = ppg × factor.
+The preseason opinion is allowed to speak. It is not allowed to chair the meeting indefinitely.
 
-### Availability
+### Age adjustment: the prior has been informed about aging
 
-Injury and roster status each map to a fixed multiplier. For this week, Out = 0, Doubtful = 0.25, Questionable = 0.85. For the rest of the season the penalties are much milder (Out = 0.85). Bye weeks and IR are zero.
+For each position and age, the app looks at historical changes in scoring from one year to the next. It takes the median of those next-year/current-year ratios to build an age multiplier.
 
-### Value over replacement
+For example, a multiplier of `0.92` for a 31-year-old running back reduces that player’s prior by 8%.
 
-A player scoring 12 points a week is great if the free-agent pool offers 6, and useless if it offers 12. So the app first finds the replacement level at each position: the score of the best player nobody would be forced to start, based on your league's starting slots and team count.
+- The multiplier is capped between `0.7` and `1.1`.
+- It is a lookup table, not a separate player score.
+- It adjusts the prior only.
 
+The calendar gets a vote. It does not get to rewrite the player’s current-season production.
+
+### Opponent factor: this week’s defense has entered the discussion
+
+The matchup factor compares points allowed to the player’s position with the league average:
+
+```text
+opponent factor = defense’s points allowed to the position / league average
+weekly projection = PPG × opponent factor
+```
+
+A factor above `1.0` indicates a softer matchup. A factor below `1.0` indicates a tougher one.
+
+Early in the season, the ratio is pulled toward `1.0` using a shrinkage weight of six games. The factor is also capped between `0.9` and `1.1`.
+
+One strange Sunday is not permitted to become an entire defensive philosophy.
+
+### Availability: the player does need to participate
+
+Injury and roster statuses map to fixed multipliers. Examples:
+
+| Status | This week | Rest of season |
+| --- | --- | --- |
+| Out | `0` | `0.85` |
+| Doubtful | `0.25` | — |
+| Questionable | `0.85` | — |
+
+The dash means no rest-of-season value is specified here. Rest-of-season penalties are generally milder than weekly penalties. Bye weeks and IR are assigned zero under the availability rules.
+
+These are model assumptions. “Questionable” has not been solved as a concept.
+
+### Value over replacement: compared with whom, exactly?
+
+A player scoring 12 points a week matters a lot more when the alternative scores six than when the alternative also scores 12.
+
+The app estimates replacement level at each position using the league’s starting slots and team count: the projected score of the best player outside the group required to fill those starting positions.
+
+```text
 intrinsic value = projected rest-of-season points − replacement points
-
-AKA how many points does this person give you against the next guy available for free in **your league**
-
-### Picking your best lineup
-
-Many other features depend on one question: given these players and these slots (QB, 2 RB, 2 WR, FLEX…), what is the best possible lineup?
-
-- Fixed slots (QB, RB, WR…) are easy: take the top scorers at that position.
-- FLEX is tricky, because a RB, WR or TE can fill it. The app tries combinations with a technique called dynamic programming. It remembers the best result for each partial choice so it never redoes the same work. The answer is the true best lineup, not an approximation.
-- Before that, it trims the bench candidates to the few who could possibly fill a flex slot, to keep it fast.
-
-Team strength = the best-lineup points added up over every remaining week.
-
-### Win Probability
-
-If you project 110 points and your opponent projects 100, you are the favorite, but not a lock. The app turns the projected gap into a chance of winning:
-
-```
-P(win) = Φ( gap ÷ (σ × √2) )
 ```
 
-- **gap** is your projected score minus your opponent's.
-- **σ** (sigma) is how far a team's real score usually lands from its projection. A bigger σ means more weekly luck, so the same gap gives a less confident answer.
-- **√2** is there because two teams are involved. Each has its own error, and the two combine into one error for the gap.
-- **Φ** (phi) is the normal bell curve's cumulative chance. It converts the scaled gap into a probability from 0 to 1. A gap of zero gives 50%.
+This measures projected points above that league-specific replacement baseline. It is a starting-slot baseline, not a guarantee that the replacement player is sitting unclaimed on waivers.
 
-As a game plays out, σ shrinks with the share of starters still to play, so a finished game reads as decided.
+“He’s good” has been asked to provide a reference point.
 
-**What σ should be.** The code currently uses σ = 20. Measured against 2022–2026 projections, the typical team-score miss was about 26 points, and 20 turned out overconfident: when it said 74%, the side won about 61% of the time. Settings will let you change σ, and the better value is still being tuned.
+### Best lineup: FLEX required a disproportionate response
 
-### Backtesting and tuning
+Several features depend on the same question: given these players and these starting slots, which valid lineup has the highest projected score?
 
-This app replays season week by week, projecting only what was known at the time, and compares to what happened.
+- Fixed-position slots use the highest projected scorers eligible for those positions.
+- FLEX slots require considering players from multiple eligible positions.
+- Dynamic programming tracks the best result for each partial choice instead of repeatedly solving the same combinations.
+- Before that search, the candidate pool is trimmed to players who could fill the relevant flex slots.
 
-It scores itself with a Spearman correlation - Players are ranked by projected points and again by actual points, the rank difference is computed for each player, and those differences feed into **ρ = 1 − 6Σd² / n(n²−1)**
+The goal is the highest-scoring valid lineup under the model’s projections and slot constraints. That is different from knowing who will actually score the most on Sunday.
 
-- n - number of players it's ranking
-- d - for one player, (projected rank - actual rank)
-- d² — square it so negatives can't cancel and bigger misses are punished more (a 4-rank miss costs 16, a 1-rank miss costs 1).
-- Σd² — the sum of every player's squared miss
-- n(n²−1) — scales the sum. The worst case (a fully reversed ranking) is n(n²−1)/3
-- 6 scales the result so it runs from −1 to +1, which is two units wide. The worst-case sum has a ÷3 in it, and 2 × 3 = 6. That is all it is.
+```text
+team strength = sum of best-lineup projected points over every remaining week
+```
+
+I wanted to compare teams. The bench now requires an optimization procedure.
+
+### Win probability: being favored is not a legally binding agreement
+
+A team projected for 110 points is favored over one projected for 100. The model turns that gap into a win probability:
+
+```text
+P(win) = Φ(gap / (σ × √2))
+```
+
+- **gap:** your projected score minus your opponent’s
+- **σ:** the assumed standard deviation of one team’s scoring error around its projection
+- **√2:** combines the errors of two teams, assuming independent errors with the same standard deviation
+- **Φ:** the standard normal cumulative distribution function, which converts the scaled gap into a probability
+
+A gap of zero gives a 50% chance. A larger σ means more uncertainty, so the same projected lead produces a less confident forecast.
+
+As games progress, the model reduces uncertainty based on the share of starters still to play, so a completed matchup reads as decided.
+
+#### Current calibration: confidence has been called in for questioning
+
+The current code uses `σ = 20`.
+
+The available 2022–2026 backtest results reported a typical team-score miss of about 26 points and showed that `20` was overconfident: when the model said roughly 74%, that side won about 61% of the time.
+
+The appropriate σ is still being tuned. The planned Settings controls will allow it to be changed.
+
+The model has been informed that confidence is not a substitute for being right.
+
+## Backtesting: the model must bring receipts
+
+The app replays seasons week by week, projecting with only the information available at that point, then compares the predictions with what actually happened.
+
+No borrowing next month’s information to make last month’s predictions look intelligent.
+
+### Ranking accuracy
+
+One evaluation metric is Spearman rank correlation: rank players by projected points, rank them again by actual points, and compare the orderings.
+
+For rankings without ties, the formula is:
+
+```text
+ρ = 1 − 6Σd² / [n(n² − 1)]
+```
+
+- **n:** number of players being ranked
+- **d:** one player’s projected rank minus their actual rank
+- **d²:** squares each difference, so positive and negative misses cannot cancel; a four-rank miss contributes 16, while a one-rank miss contributes one
+- **Σd²:** the sum of all squared rank differences
+- **n(n² − 1):** part of the normalization that makes results comparable across ranking sizes
+
+The result ranges from `−1` to `+1`:
+
+| Value | Meaning |
+| --- | --- |
+| `+1` | The rankings agree perfectly |
+| Near `0` | Little monotonic association between the rankings |
+| `−1` | The rankings are perfectly reversed |
+
+For a completely reversed ranking, the squared differences sum to `n(n² − 1) / 3`. The factor of six makes that worst case subtract two from one, giving `−1`.
+
+If players share ranks, Spearman correlation needs tie-aware handling, typically correlation of the average ranks, rather than blindly applying the shortcut above.
+
+Rank correlation measures ordering. Probability calibration is a separate question, which is why the win-probability checks matter too.
+
+A convincing leaderboard still has to survive contact with the schedule.
 
 ## Dedication
 
-I dedicate this to those who just can't seem to beat that one person before playoffs year after year <3
+For everyone who keeps losing to the same person before the playoffs and has requested an independent investigation.
 
-And for the guys who say they will actually try this year until week 4.
+And for the guys who announce they’re taking it seriously this year, then abandon the operation in Week 4.
+
+The group chat has been entered into evidence. <3
+
