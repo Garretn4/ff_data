@@ -13,6 +13,104 @@ FF Analyst brings fantasy football league data, projections, and market informat
 
 The model is being tested against past seasons before its rankings get treated as reliable. Sorting a table does not grant prophetic authority.
 
+## Getting started (no coding needed)
+
+This app runs on your own computer. Your league data is downloaded from Sleeper and stored in a folder next to the app. Nothing is uploaded anywhere. You need a Sleeper account and an internet connection.
+
+### 1. Install uv (one time)
+
+`uv` is a free helper that installs everything else the app needs, including the right version of Python.
+
+**Mac:** open the **Terminal** app (press Command + Space, type "Terminal", press Enter). Paste this line and press Enter:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows:** open **PowerShell** (press the Windows key, type "PowerShell", press Enter). Paste this line and press Enter:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+When it finishes, close the window and open a new one so your computer can find `uv`.
+
+### 2. Download the app (one time)
+
+1. On this GitHub page, click the green **Code** button, then **Download ZIP**.
+2. Open your Downloads folder and unzip the file (double click it on Mac, right click and **Extract All** on Windows).
+3. Move the unzipped folder somewhere easy to find, like your Documents folder.
+
+### 3. Start the app
+
+1. Open Terminal (Mac) or PowerShell (Windows).
+2. Type `cd ` (the letters c, d, then a space), then drag the unzipped folder into the window and press Enter. This tells the window which folder to work in.
+3. Paste this line and press Enter:
+
+```bash
+uv run python -m app run
+```
+
+The first time, it spends a few minutes installing what it needs. After that it starts in seconds. A black app window opens when it is ready.
+
+To start the app again later, repeat step 3. To quit, close the app window.
+
+### 4. Connect your league
+
+1. Click **SETTINGS** in the menu at the top.
+2. Type your Sleeper username in the **Usernames** box. If you are in several leagues with friends, you can add their usernames too, separated by commas.
+3. Click **SAVE**.
+
+![The Settings screen](docs/screenshots/settings.png)
+
+The app now finds your leagues and downloads the history it needs. This took about one minute in testing, and a bit longer on a slow connection. When it finishes, click **LEAGUE** in the menu to see your league. If you are in more than one league, pick the one you want from the drop down at the top right.
+
+The app checks for new data on its own when you open it. Click **REFRESH** at any time to pull the latest scores, injuries and rosters.
+
+### A tour of the screens
+
+Use the menu across the top to move between screens. The **MODEL** and **CONSENSUS** buttons at the top right switch between this app's own projections and expert consensus projections.
+
+**League** shows every team's record, points for and against, projected points per week for the rest of the season, and a power ranking. Your team is highlighted in orange.
+
+![League screen](docs/screenshots/league.png)
+
+**Matchups** shows this week's games. For each one you see both lineups, each player's projection, and each team's chance of winning.
+
+![Matchups screen](docs/screenshots/matchups.png)
+
+**Heatmap** shows where each team is strong or weak by position. Green means a team is stronger than the rest of the league at that position, red means weaker. A red square on your team next to a green square on another team is a natural trade.
+
+![Heatmap screen](docs/screenshots/heatmap.png)
+
+**Players** lists players with their projected value to you and a small chart of their expected weekly points. Use the filters at the top to narrow by position or owner, or type a name into the search box.
+
+![Players screen](docs/screenshots/players.png)
+
+**Scatter** compares what the market thinks a player is worth against what the model thinks. Players the model likes more than the market are listed under **Buy Low**. Players the market likes more than the model are under **Sell High**.
+
+![Scatter screen](docs/screenshots/scatter.png)
+
+**Trade** lets you test a trade. Pick your team on the left and another team on the right, then click the players that would change hands. The middle shows how much each side gains or loses in projected points. Green is a gain and red is a loss.
+
+![Trade screen](docs/screenshots/trade.png)
+
+**Finder** looks for trades for you. Pick your team, pick one opponent or all of them, and click **FIND**. It lists trades that help both sides, and each one has a link that opens it on the Trade screen. The search can take a few seconds.
+
+![Finder screen](docs/screenshots/finder.png)
+
+**Managers** shows how each person in your league has behaved: how often they trade, who they trade with, and whether they tend to overpay.
+
+### If something goes wrong
+
+- **"another ff-analyst instance is already running"**: the app is already open somewhere else. Close the other window, then click **RETRY**.
+- **"no league selected"**: go to **SETTINGS**, enter your Sleeper username and click **SAVE**.
+- **The numbers look old**: click **REFRESH** at the top right.
+- **No app window opens, or it opens blank**: use your web browser instead. On Mac, run `FF_NATIVE=0 uv run python -m app run`. On Windows PowerShell, run `$env:FF_NATIVE=0; uv run python -m app run`. Then open `http://127.0.0.1:8765` in your browser.
+- **Anything else**: close the window, run the start command again, and open an issue on this GitHub page with a description or screenshot of what you saw.
+
+The screenshots above are from one example league. Your screens will show your own league, teams and players.
+
 ## Project status
 
 An active personal project. The interface, data pipeline, model, and backtests are still being developed.
