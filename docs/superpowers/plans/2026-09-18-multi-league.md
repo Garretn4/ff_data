@@ -95,7 +95,7 @@ def test_config_from_form_parses_usernames(tmp_path: Path) -> None:
     assert config_from_form(_form(usernames="ann, bob"), _cfg(tmp_path)).usernames == ("ann", "bob")
 ```
 
-Update the existing round-trip test's expectation loop: `SAVED_KEYS` now includes `usernames`, so the equality loop covers it. Update `test_load_config_reads_username_from_toml` and `test_load_config_username_defaults_to_empty` to assert on `usernames == ("garretn4",)` and `usernames == ()`.
+Update the existing round-trip test's expectation loop: `SAVED_KEYS` now includes `usernames`, so the equality loop covers it. Update `test_load_config_reads_username_from_toml` and `test_load_config_username_defaults_to_empty` to assert on `usernames == ("alice",)` and `usernames == ()`.
 
 In `tests/test_state.py`, change `_cfg(username)` to build `Config(..., usernames=(username,) if username else ())`.
 
@@ -533,7 +533,7 @@ def _state_with(ctx: LeagueContext, username: str = "ann", **league: object) -> 
     return state
 ```
 
-- Rewrite every `AppState(cfg=..., ctx=...)` construction to `_state_with(ctx, ...)`, and every preset of `state.team_weeks = {...}` / `state.projections = {...}` to pass them through `_state_with(..., team_weeks=..., projections=...)`. The `my_roster_id` tests use `_state_with(_ctx(rosters), "Garretn4")` etc.
+- Rewrite every `AppState(cfg=..., ctx=...)` construction to `_state_with(ctx, ...)`, and every preset of `state.team_weeks = {...}` / `state.projections = {...}` to pass them through `_state_with(..., team_weeks=..., projections=...)`. The `my_roster_id` tests use `_state_with(_ctx(rosters), "Alice")` etc.
 - `test_load_leaves_state_untouched_when_projection_fails`: keep the assertions on the forwarding properties; for the pre-seeded case use `_state_with(other_ctx)` and assert `state.leagues[other_ctx.league_id].ctx is other_ctx` afterwards.
 - `test_apply_settings_saves_and_returns_the_top_scope`: the `"league"` scope now means usernames changed, so replace the `league_id="42"` step with `replace(state.cfg, usernames=("bob",), blend_a=0.2)` and monkeypatch `state._rediscover` to `lambda: calls.append("discover")`; expected calls end with `"discover"` instead of `"load"`, and the model recompute still does not run for that step (assert `calls == ["values", "model", "model", "discover"]`).
 
@@ -963,12 +963,12 @@ and in `on_save`, after the notification, call `leagues_section.refresh()`. Impo
 - [ ] **Step 3: Launch and drive**
 
 Run in the background: `FF_NATIVE=0 uv run python -m app run`. Market snapshots are now keyed by league (Task 4), so the pre-existing cache has none under the new key: press the header Refresh once before checking values anywhere. With the Playwright tools:
-1. Open `/settings`. Confirm the Usernames field shows `garretn4` and no League id field. Confirm the Leagues section lists "Kathy VS Jenifer · redraft 10" as active (it may say "No leagues found yet" until the first refresh under the new code; if so press the header Refresh and reload).
-2. Set Usernames to `garretn4, mosrocks` and Save. Confirm the positive notification and that the Leagues section now lists eight leagues (the shared one shows members `garretn4, mosrocks`).
-3. In the header select, pick "Trade addicts · dynasty 12". Confirm the info notification, the refresh, and that the header then shows "Trade addicts" with its week. Open `/league` and `/matchups` and confirm they render for that league; on `/matchups` confirm the my-card is for mosrocks's roster (he is the only configured member there).
-4. Pick "Kathy VS Jenifer" again. Confirm it is instant (no refresh) and the my-card on `/matchups` is garretn4's roster.
+1. Open `/settings`. Confirm the Usernames field shows `alice` and no League id field. Confirm the Leagues section lists "Kathy VS Jenifer · redraft 10" as active (it may say "No leagues found yet" until the first refresh under the new code; if so press the header Refresh and reload).
+2. Set Usernames to `alice, bob` and Save. Confirm the positive notification and that the Leagues section now lists eight leagues (the shared one shows members `alice, bob`).
+3. In the header select, pick "Trade addicts · dynasty 12". Confirm the info notification, the refresh, and that the header then shows "Trade addicts" with its week. Open `/league` and `/matchups` and confirm they render for that league; on `/matchups` confirm the my-card is for bob's roster (he is the only configured member there).
+4. Pick "Kathy VS Jenifer" again. Confirm it is instant (no refresh) and the my-card on `/matchups` is alice's roster.
 5. Open `/players` in each of the two leagues and confirm market values differ (dynasty vs redraft scale), proving per-league snapshots.
-6. Server log: no tracebacks. Kill the server; confirm gone; `config.local.toml` now has `usernames = ["garretn4", "mosrocks"]` and `league_id = "1389357573194387456"`. Do not commit it (ignored).
+6. Server log: no tracebacks. Kill the server; confirm gone; `config.local.toml` now has `usernames = ["alice", "bob"]` and `league_id = "1000000000000000001"`. Do not commit it (ignored).
 
 - [ ] **Step 4: Run tests and commit**
 

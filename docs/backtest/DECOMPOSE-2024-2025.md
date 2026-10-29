@@ -1,6 +1,6 @@
 # Decomposition: why does the model lose to consensus, 2024-2025?
 
-Params: BlendParams(k=4.0, a=0.3, b=0.7). Seasons: [2024, 2025]. Weeks: 2-14. Real cache db: `/Users/garretnelson/code/ff-analyst/cache/stats.duckdb` (read-only). League settings from `/Users/garretnelson/code/ff-analyst/cache/app.sqlite` (read-only).
+Params: BlendParams(k=4.0, a=0.3, b=0.7). Seasons: [2024, 2025]. Weeks: 2-14. Real cache db: `<repo>/cache/stats.duckdb` (read-only). League settings from `<repo>/cache/app.sqlite` (read-only).
 
 ## Overall
 - n = 9728

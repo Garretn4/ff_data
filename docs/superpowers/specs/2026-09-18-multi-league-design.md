@@ -36,11 +36,11 @@ Every screen keeps reading the same state properties it reads today.
 Verified on 2026-09-18 against Sleeper's public API:
 
 - `GET /v1/user/{username}` returns `user_id` and `display_name`
-  (`garretn4` → `851577072894713856`, `mosrocks` → `856664637989584896`).
+  (`alice` → `1000000000000000002`, `bob` → `1000000000000000003`).
 - `GET /v1/user/{user_id}/leagues/nfl/{season}` returns league objects
   with `league_id, name, season, status ("pre_draft" | "in_season" | …),
   total_rosters, settings.type, settings.draft_rounds, scoring_settings`.
-  `garretn4` has one 2026 league; `mosrocks` has seven, including the same
+  `alice` has one 2026 league; `bob` has seven, including the same
   one, four with `type == 2`, one with `type == 3`, one `pre_draft`.
 - `SleeperClient._get(path, ttl)` caches under `sleeper:{path}` in the
   SQLite `http_cache` table with a `fetched_at` epoch; `refresh=True`
@@ -202,9 +202,9 @@ discovers leagues.
 - Market: snapshot source keyed by league; `player_values` reads its own.
 - Refresh: summary errors carry the unknown-username message.
 
-Screens verified by adding `mosrocks` in Settings, seeing eight leagues in
+Screens verified by adding `bob` in Settings, seeing eight leagues in
 the switcher, opening three of them plus the shared one, and confirming the
-shared league resolves my roster to `garretn4`.
+shared league resolves my roster to `alice`.
 
 ## Out of scope
 

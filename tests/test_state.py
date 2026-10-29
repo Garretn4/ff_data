@@ -63,8 +63,8 @@ def _state_with(ctx: LeagueContext, username: str = "ann", **league: object) -> 
 
 def test_my_roster_id_matches_username_case_insensitively() -> None:
     rosters = (Roster(4, "u1", "Ann's Army", "Ann", None, (), (), ()),
-               Roster(7, "u2", "Bobcats", "garretN4", None, (), (), ()))
-    state = _state_with(_ctx(rosters), "Garretn4")
+               Roster(7, "u2", "Bobcats", "alicE", None, (), (), ()))
+    state = _state_with(_ctx(rosters), "Alice")
     assert state.my_roster_id() == 7
 
 

@@ -40,9 +40,9 @@ def test_load_config_ff_root_overrides_the_root(tmp_path: Path) -> None:
 
 
 def test_load_config_reads_username_from_toml(tmp_path: Path) -> None:
-    (tmp_path / "config.local.toml").write_text('username = "garretn4"\n')
+    (tmp_path / "config.local.toml").write_text('username = "alice"\n')
     cfg = load_config(tmp_path, env={})
-    assert cfg.usernames == ("garretn4",)
+    assert cfg.usernames == ("alice",)
 
 
 def test_load_config_username_defaults_to_empty(tmp_path: Path) -> None:
