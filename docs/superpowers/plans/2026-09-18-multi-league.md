@@ -963,10 +963,10 @@ and in `on_save`, after the notification, call `leagues_section.refresh()`. Impo
 - [ ] **Step 3: Launch and drive**
 
 Run in the background: `FF_NATIVE=0 uv run python -m app run`. Market snapshots are now keyed by league (Task 4), so the pre-existing cache has none under the new key: press the header Refresh once before checking values anywhere. With the Playwright tools:
-1. Open `/settings`. Confirm the Usernames field shows `alice` and no League id field. Confirm the Leagues section lists "Kathy VS Jenifer · redraft 10" as active (it may say "No leagues found yet" until the first refresh under the new code; if so press the header Refresh and reload).
+1. Open `/settings`. Confirm the Usernames field shows `alice` and no League id field. Confirm the Leagues section lists "Example League · redraft 10" as active (it may say "No leagues found yet" until the first refresh under the new code; if so press the header Refresh and reload).
 2. Set Usernames to `alice, bob` and Save. Confirm the positive notification and that the Leagues section now lists eight leagues (the shared one shows members `alice, bob`).
-3. In the header select, pick "Trade addicts · dynasty 12". Confirm the info notification, the refresh, and that the header then shows "Trade addicts" with its week. Open `/league` and `/matchups` and confirm they render for that league; on `/matchups` confirm the my-card is for bob's roster (he is the only configured member there).
-4. Pick "Kathy VS Jenifer" again. Confirm it is instant (no refresh) and the my-card on `/matchups` is alice's roster.
+3. In the header select, pick "Example Dynasty · dynasty 12". Confirm the info notification, the refresh, and that the header then shows "Example Dynasty" with its week. Open `/league` and `/matchups` and confirm they render for that league; on `/matchups` confirm the my-card is for bob's roster (he is the only configured member there).
+4. Pick "Example League" again. Confirm it is instant (no refresh) and the my-card on `/matchups` is alice's roster.
 5. Open `/players` in each of the two leagues and confirm market values differ (dynasty vs redraft scale), proving per-league snapshots.
 6. Server log: no tracebacks. Kill the server; confirm gone; `config.local.toml` now has `usernames = ["alice", "bob"]` and `league_id = "1000000000000000001"`. Do not commit it (ignored).
 
